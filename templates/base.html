@@ -6,6 +6,63 @@
   <title>{% block title %}{{ center_name }}{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <style>
+    /* CSS hỗ trợ Nút Toggle Sidebar & Giao diện Điện thoại */
+    .btn-toggle-sidebar {
+      display: none;
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: #ffffff;
+      font-size: 1.3rem;
+      padding: 0.3rem 0.6rem;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-right: 0.8rem;
+      line-height: 1;
+    }
+
+    .sidebar-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.4);
+      z-index: 99;
+    }
+
+    /* Reponsive cho Mobile */
+    @media (max-width: 768px) {
+      .btn-toggle-sidebar {
+        display: inline-block;
+      }
+
+      .app-shell .sidebar {
+        position: fixed;
+        top: 0;
+        left: -260px; /* Mặc định ẩn sang bên trái */
+        width: 250px;
+        height: 100vh;
+        z-index: 100;
+        transition: left 0.3s ease;
+        box-shadow: 2px 0 10px rgba(0, 0, 0, 0.15);
+        background: #ffffff;
+      }
+
+      .app-shell .sidebar.open {
+        left: 0; /* Hiện ra khi mở */
+      }
+
+      .sidebar-overlay.active {
+        display: block; /* Hiện lớp phủ khi mở menu trên điện thoại */
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+      }
+    }
+
     /* CSS hỗ trợ Modal xác thực Giáo viên */
     .modal-overlay {
       display: none;
@@ -83,6 +140,9 @@
 </head>
 <body>
   <div class="topbar">
+    <!-- Nút Toggle Sidebar (Menu ☰) dành riêng cho Điện thoại -->
+    <button class="btn-toggle-sidebar" id="btn-toggle-sidebar" title="Mở danh mục">☰</button>
+
     <div class="brand-mark">{{ center_name[:1] }}</div>
     <div>
       <div class="eyebrow">Hệ thống trung tâm</div>
@@ -96,7 +156,10 @@
   </div>
 
   <div class="app-shell">
-    <aside class="sidebar">
+    <!-- Lớp phủ màn hình khi bật Sidebar trên điện thoại -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <aside class="sidebar" id="app-sidebar">
       <!-- ĐÃ BỎ HẲN KHỐI LOGO VÀ TÊN TRUNG TÂM Ở SIDEBAR ĐỂ KHÔNG BỊ TRÙNG VỚI HEADER -->
 
       <a class="sidebar-item {{ 'active' if active == 'kiemtra' else '' }}" href="{{ url_for('home') }}">
@@ -155,6 +218,37 @@
 
   <script>
     document.addEventListener('DOMContentLoaded', function() {
+      // 1. Quản lý Đóng/Mở Sidebar trên Điện thoại
+      var toggleBtn = document.getElementById('btn-toggle-sidebar');
+      var sidebar = document.getElementById('app-sidebar');
+      var overlay = document.getElementById('sidebar-overlay');
+
+      function openSidebar() {
+        sidebar.classList.add('open');
+        overlay.classList.add('active');
+      }
+
+      function closeSidebar() {
+        sidebar.classList.remove('open');
+        overlay.classList.remove('active');
+      }
+
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          if (sidebar.classList.contains('open')) {
+            closeSidebar();
+          } else {
+            openSidebar();
+          }
+        });
+      }
+
+      if (overlay) {
+        overlay.addEventListener('click', closeSidebar);
+      }
+
+      // 2. Quản lý Modal Mật khẩu Giáo viên
       var teacherBtn = document.getElementById('btn-teacher-auth');
       if (teacherBtn) {
         teacherBtn.addEventListener('click', function(e) {
