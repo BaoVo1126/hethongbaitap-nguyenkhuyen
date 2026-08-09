@@ -5,6 +5,81 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ center_name }}{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <style>
+    /* CSS hỗ trợ Modal xác thực Giáo viên */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 99999;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-card {
+      background: #ffffff;
+      border-radius: 10px;
+      padding: 1.8rem;
+      width: 90%;
+      max-width: 360px;
+      text-align: center;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+      animation: modalFadeIn 0.2s ease;
+    }
+    .modal-card h3 {
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+      font-size: 1.15rem;
+      color: #222222;
+    }
+    .modal-card p {
+      font-size: 0.88rem;
+      color: #666666;
+      margin-bottom: 1.2rem;
+    }
+    .modal-input {
+      width: 100%;
+      padding: 0.75rem;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 1rem;
+      margin-bottom: 1.2rem;
+      box-sizing: border-box;
+      text-align: center;
+    }
+    .modal-actions {
+      display: flex;
+      gap: 0.8rem;
+      justify-content: center;
+    }
+    .btn-modal-cancel {
+      flex: 1;
+      padding: 0.65rem;
+      border: 1px solid #ccc;
+      background: #f5f5f5;
+      color: #333333;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-modal-confirm {
+      flex: 1;
+      padding: 0.65rem;
+      border: none;
+      background: #b5473a;
+      color: #ffffff;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    @keyframes modalFadeIn {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+  </style>
 </head>
 <body>
   <div class="topbar">
@@ -13,7 +88,8 @@
       <div class="eyebrow">Hệ thống trung tâm</div>
       <h1>{{ center_name }}</h1>
     </div>
-    <a class="teacher-link" href="{{ url_for('admin_home') }}">Giáo viên</a>
+    <!-- Nút Giáo viên kích hoạt Modal nhập mật khẩu -->
+    <a class="teacher-link" href="#" onclick="openTeacherAuthModal(event, '{{ url_for('admin_home') }}')">Giáo viên</a>
   </div>
 
   <div class="app-shell">
@@ -44,5 +120,50 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+
+  <!-- POPUP (MODAL) XÁC NHẬN MẬT KHẨU GIÁO VIÊN -->
+  <div id="teacher-auth-modal" class="modal-overlay">
+    <div class="modal-card">
+      <h3>🔒 Xác thực Giáo viên</h3>
+      <p>Vui lòng nhập mật khẩu để truy cập trang quản trị.</p>
+      
+      <form id="teacher-auth-form" method="POST" action="{{ url_for('verify_teacher_pass') }}">
+        <!-- Ô nhập mật khẩu hiển thị các dấu chấm đen -->
+        <input type="password" 
+               id="teacher-password-input"
+               name="teacher_password" 
+               class="modal-input"
+               placeholder="Nhập mật khẩu..." 
+               required>
+        
+        <input type="hidden" name="next_url" id="teacher-next-url" value="">
+
+        <div class="modal-actions">
+          <button type="button" class="btn-modal-cancel" onclick="closeTeacherAuthModal()">
+            Hủy
+          </button>
+          <button type="submit" class="btn-modal-confirm">
+            Xác nhận
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    function openTeacherAuthModal(event, targetUrl) {
+      if (event) event.preventDefault();
+      document.getElementById('teacher-next-url').value = targetUrl;
+      var modal = document.getElementById('teacher-auth-modal');
+      modal.style.display = 'flex';
+      var input = document.getElementById('teacher-password-input');
+      input.value = '';
+      setTimeout(function() { input.focus(); }, 100);
+    }
+
+    function closeTeacherAuthModal() {
+      document.getElementById('teacher-auth-modal').style.display = 'none';
+    }
+  </script>
 </body>
 </html>
