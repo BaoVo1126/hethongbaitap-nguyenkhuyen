@@ -67,6 +67,9 @@ CENTER_INFO = {
     ),
 }
 
+# MẬT KHẨU BẢO VỆ DÀNH CHO GIÁO VIÊN
+TEACHER_PASSWORD = os.environ.get("TEACHER_PASSWORD", "123456")
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "demo-secret-key-doi-khi-deploy-that"
 app.config["MAX_CONTENT_LENGTH"] = 30 * 1024 * 1024  # 30MB
@@ -777,6 +780,22 @@ def result(submission_id):
         duration_str=duration_str,
         active="kiemtra",
     )
+
+
+# --------------------------------------------------------------------------
+# ROUTE XÁC THỰC MẬT KHẨU GIÁO VIÊN
+# --------------------------------------------------------------------------
+
+@app.route("/verify-teacher-password", methods=["POST"])
+def verify_teacher_pass():
+    password_input = request.form.get("teacher_password", "")
+    next_url = request.form.get("next_url") or url_for("admin_home")
+    
+    if password_input == TEACHER_PASSWORD:
+        return redirect(next_url)
+    else:
+        flash("❌ Mật khẩu giáo viên không chính xác. Vui lòng thử lại!")
+        return redirect(request.referrer or url_for("home"))
 
 
 @app.route("/admin")
