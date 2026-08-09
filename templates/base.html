@@ -88,8 +88,11 @@
       <div class="eyebrow">Hệ thống trung tâm</div>
       <h1>{{ center_name }}</h1>
     </div>
-    <!-- Nút Giáo viên kích hoạt Modal nhập mật khẩu -->
-    <a class="teacher-link" href="#" onclick="openTeacherAuthModal(event, '{{ url_for('admin_home') }}')">Giáo viên</a>
+    <!-- Dùng data-target-url giúp tránh lỗi xung đột dấu nháy trên VS Code -->
+    <a class="teacher-link" 
+       id="btn-teacher-auth"
+       href="#" 
+       data-target-url="{{ url_for('admin_home') }}">Giáo viên</a>
   </div>
 
   <div class="app-shell">
@@ -151,15 +154,23 @@
   </div>
 
   <script>
-    function openTeacherAuthModal(event, targetUrl) {
-      if (event) event.preventDefault();
-      document.getElementById('teacher-next-url').value = targetUrl;
-      var modal = document.getElementById('teacher-auth-modal');
-      modal.style.display = 'flex';
-      var input = document.getElementById('teacher-password-input');
-      input.value = '';
-      setTimeout(function() { input.focus(); }, 100);
-    }
+    document.addEventListener('DOMContentLoaded', function() {
+      var teacherBtn = document.getElementById('btn-teacher-auth');
+      if (teacherBtn) {
+        teacherBtn.addEventListener('click', function(e) {
+          e.preventDefault();
+          var targetUrl = this.getAttribute('data-target-url');
+          document.getElementById('teacher-next-url').value = targetUrl;
+          
+          var modal = document.getElementById('teacher-auth-modal');
+          modal.style.display = 'flex';
+          
+          var input = document.getElementById('teacher-password-input');
+          input.value = '';
+          setTimeout(function() { input.focus(); }, 100);
+        });
+      }
+    });
 
     function closeTeacherAuthModal() {
       document.getElementById('teacher-auth-modal').style.display = 'none';
