@@ -12,11 +12,14 @@ os.environ["FLAGS_use_mkldnn"] = "0"
 os.environ["FLAGS_enable_pir_api"] = "0"
 
 try:
-    import fitz  
+    import pymupdf as fitz  
     PDF_AVAILABLE = True
 except ImportError:
-    PDF_AVAILABLE = False
-
+    try:
+        import fitz
+        PDF_AVAILABLE = True
+    except ImportError:
+        PDF_AVAILABLE = False
 
 try:
     from paddleocr import PaddleOCR
