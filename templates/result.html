@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="stub">
+    <div class="score-big">{{ submission['score'] }}/{{ submission['total'] }}</div>
+    <div class="score-sub">{{ exam['title'] }}</div>
+    <div class="stub-meta">
+      <span>HS: {{ test['student_name'] }} ({{ test['student_code'] }})</span>
+      {% if duration_str %}<span>Thời gian làm bài: {{ duration_str }}</span>{% endif %}
+      <span>Nộp lúc: {{ submission['submitted_at'] }}</span>
+    </div>
+  </div>
+
+  <div class="section-label">Xem lại bài làm</div>
+  <div class="board" style="padding: 0.4rem 1.4rem;">
+    {% for r in results %}
+      <div class="question-block">
+        <div class="q-number" style="display:flex;">
+          Câu {{ loop.index }}
+          <span class="result-badge {{ 'correct' if r['is_correct'] else 'wrong' }}">
+            {{ 'Đúng' if r['is_correct'] else 'Sai' }}
+          </span>
+        </div>
+        <div class="q-text">{{ r['question_text'] }}</div>
+        <div class="options">
+          {% for letter, text in r['options'].items()|sort %}
+            {% set css = '' %}
+            {% if letter == r['correct_display'] %}{% set css = 'correct' %}
+            {% elif letter == r['chosen'] and not r['is_correct'] %}{% set css = 'wrong-picked' %}
+            {% endif %}
+            <div class="option-row {{ css }}">
+              <span class="letter">{{ letter }}.</span> {{ text }}
+              {% if letter == r['correct_display'] %}<span style="margin-left:auto;font-size:0.8rem;color:var(--correct);">✓ đáp án đúng</span>{% endif %}
+              {% if letter == r['chosen'] and not r['is_correct'] %}<span style="margin-left:auto;font-size:0.8rem;color:var(--wrong);">bạn đã chọn</span>{% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endblock %}

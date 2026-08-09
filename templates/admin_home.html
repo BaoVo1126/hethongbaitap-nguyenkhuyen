@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block content %}
+  {% include "_admin_tabs.html" %}
+
+  <div class="section-label">
+    Đưa đề mới lên
+    {% if pdf_available %}
+      <span class="badge-note">Bộ đọc PDF: đang bật</span>
+    {% else %}
+      <span class="badge-note off">Chưa cài PyMuPDF</span>
+    {% endif %}
+  </div>
+
+  {% if not pdf_available and not ocr_available %}
+    <div class="flash">
+      Chưa cài đặt thư viện đọc file (PyMuPDF / Tesseract OCR) — bạn sẽ cần nhập câu hỏi thủ công.
+    </div>
+  {% endif %}
+
+  <form class="card-form" method="POST" action="{{ url_for('admin_upload') }}" enctype="multipart/form-data">
+    <label>Tên đề</label>
+    <input type="text" name="title" required placeholder="Kiểm tra 15 phút - Chương Este">
+
+    <label>Môn học</label>
+    <input type="text" name="subject" placeholder="Hóa 12">
+
+    <label>Tệp đề thi (PDF hoặc Ảnh)</label>
+    <input type="file" name="exam_image" accept="image/*,.pdf" required>
+    <div class="hint">Hệ thống sẽ tự động bóc tách text từ PDF/Ảnh, tự nhận diện các câu hỏi (kể cả dạng 23.1, 23.2,...) và trích xuất 4 đáp án. Bạn có thể xem lại và chỉnh sửa trước khi đăng.</div>
+
+    <!-- BỔ SUNG: KHỐI CHỌN NGÀY VÀ THỜI GIAN LÀM BÀI TRÊN CÙNG HÀNG -->
+    <div style="display: flex; gap: 1rem; margin-top: 0.8rem;">
+      <div style="flex: 1;">
+        <label>Ngày mở bài (không bắt buộc)</label>
+        <input type="date" name="available_date" style="width: 100%;">
+        <div class="hint">Để trống nếu muốn mở ngay hôm nay. Chọn ngày trong tương lai để "đặt trước".</div>
+      </div>
+      <div style="flex: 1;">
+        <label>Thời gian làm bài (Phút)</label>
+        <input type="number" name="time_limit_minutes" min="1" placeholder="Ví dụ: 45 (để trống = không giới hạn)" style="width: 100%;">
+      </div>
+    </div>
+
+    <button class="btn" type="submit" style="margin-top: 1.2rem;">Tải lên &amp; nhận diện câu hỏi</button>
+  </form>
+
+  <div class="section-label" style="margin-top:2.2rem;">Danh sách đề</div>
+  <div class="board">
+    {% if exams %}
+      {% for e in exams %}
+        <div class="admin-exam-row">
+          <div>
+            <span class="status-chip {{ e['status'] }}">{{ 'Đã đăng' if e['status']=='published' else 'Bản nháp' }}</span>
+            <span class="title">{{ e['title'] }}</span>
+            {% if e['subject'] %}<span class="meta">&middot; {{ e['subject'] }}</span>{% endif %}
+            {% if e['available_date'] %}<span class="meta">&middot; mở {{ e['available_date'] }}</span>{% endif %}
+            {% if e['time_limit_minutes'] %}<span class="meta">&middot; {{ e['time_limit_minutes'] }} phút</span>{% endif %}
+          </div>
+          <div class="meta">{{ exam_stats[e['id']]['n_questions'] }} câu &middot; {{ exam_stats[e['id']]['n_submissions'] }} lượt nộp (điểm danh)</div>
+          
+          <a class="btn small secondary" href="{{ url_for('admin_edit_exam', exam_id=e['id']) }}">Xem/Sửa</a>
+          <a class="btn small secondary" href="{{ url_for('admin_exam_submissions', exam_id=e['id']) }}">Điểm danh</a>
+          
+          {% if e['status'] == 'published' %}
+            <form method="POST" action="{{ url_for('admin_unpublish_exam', exam_id=e['id']) }}" style="display:inline;">
+              <button class="btn small danger" type="submit">Gỡ đăng</button>
+            </form>
+          {% else %}
+            <form method="POST" action="{{ url_for('admin_publish_exam', exam_id=e['id']) }}" style="display:inline;">
+              <button class="btn small" type="submit">Đăng cho học sinh</button>
+            </form>
+          {% endif %}
+
+          <!-- FORM NÚT XÓA ĐỀ THI MỚI THÊM -->
+          <form method="POST" action="{{ url_for('admin_delete_exam', exam_id=e['id']) }}" style="display:inline;" onsubmit="return confirm('Bạn có chắc chắn muốn xóa hẳn đề thi này không? Hành động này không thể hoàn tác!');">
+            <button class="btn small danger" type="submit" style="background-color: #dc3545; color: white;">Xóa</button>
+          </form>
+
+        </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty-note">Chưa có đề nào.</div>
+    {% endif %}
+  </div>
+{% endblock %}

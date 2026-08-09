@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- GHI ĐÈ CSS CỦA BASE.HTML ĐỂ MỞ RỘNG KHUNG CHỨA VÀ ẨN LOGO TRÙNG LẶP BÊN TRÁI -->
+<style>
+  /* 1. Mở rộng khung chứa toàn màn hình */
+  main, .container, .content, .main-content, body > div {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding-left: 1rem !important;
+    padding-right: 1.5rem !important;
+    box-sizing: border-box !important;
+  }
+
+  /* 2. Ẩn Logo và Tên trung tâm ở Sidebar trái (tránh trùng lặp với Header) */
+  .sidebar .brand, 
+  .sidebar .logo-container, 
+  .sidebar h1, 
+  .sidebar h2,
+  .sidebar > div:first-child:has(img),
+  aside > div:first-child {
+    display: none !important;
+  }
+</style>
+
+<div style="width: 100%; box-sizing: border-box;">
+  <div class="section-label" style="font-weight: 600; font-size: 1.1rem; margin-bottom: 1rem;">
+    {{ exam['title'] }} &middot; {{ test['student_name'] }} ({{ test['student_code'] }})
+  </div>
+
+  <form method="POST" action="{{ url_for('submit_test', test_id=test['id']) }}" id="test-form" style="width: 100%;">
+    
+    <!-- LAYOUT FLEXBOX 2 CỘT -->
+    <div style="display: flex; gap: 1.5rem; width: 100%; align-items: flex-start; box-sizing: border-box;">
+      
+      <!-- CỘT GIỮA (BÀI TẬP): PHÓNG TO RỘNG RÃI -->
+      <div style="flex: 1; min-width: 0;">
+        <div class="board" style="padding: 1.5rem 2rem; width: 100%; box-sizing: border-box;">
+          {% for q in questions %}
+            <div class="question-block" style="margin-bottom: 2.2rem;">
+              <div class="q-number" style="font-weight: 700; font-size: 1.1rem; margin-bottom: 0.6rem; color: var(--header-red, #b5473a);">
+                Câu {{ q['index'] }}
+              </div>
+              <div class="q-text" style="font-size: 1.05rem; line-height: 1.6; margin-bottom: 1rem; font-weight: 500; color: #222;">
+                {{ q['question_text'] }}
+              </div>
+              <div class="options" style="display: flex; flex-direction: column; gap: 0.6rem;">
+                {% for letter, text in q['options'] %}
+                  <label class="option-row" style="display: flex; align-items: center; width: 100%; padding: 0.7rem 1rem; border: 1px solid #e2e8f0; border-radius: 8px; cursor: pointer; transition: background 0.2s; box-sizing: border-box;">
+                    <input type="radio" name="q_{{ q['id'] }}" value="{{ letter }}" style="margin-right: 0.8rem; transform: scale(1.2);">
+                    <span style="font-size: 1rem; color: #333;">
+                      <strong class="letter" style="color: var(--header-red, #b5473a); margin-right: 0.3rem;">{{ letter }}.</strong> {{ text }}
+                    </span>
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- CỘT PHẢI (ĐẾM NGƯỢC & NỘP BÀI): THU NHỎ GỌN GÀNG (230PX) -->
+      <div style="width: 230px; flex-shrink: 0; position: sticky; top: 1rem; z-index: 10;">
+        <div class="board" style="padding: 1rem; display: flex; flex-direction: column; gap: 0.8rem; border: 1px solid #e0e0e0; background: #fff; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.05);">
+          
+          {% if exam['time_limit_minutes'] %}
+            <div id="timer-box" style="display: flex; flex-direction: column; gap: 0.2rem; text-align: center;">
+              <span style="font-size: 0.75rem; font-weight: 700; color: #777; text-transform: uppercase; letter-spacing: 0.5px;">Thời gian còn lại</span>
+              <span id="countdown" style="font-weight: 800; font-size: 1.8rem; color: #000000; letter-spacing: 0.5px; line-height: 1.2;">--:--</span>
+            </div>
+            <hr style="border: 0; border-top: 1px solid #eee; margin: 0;">
+          {% else %}
+            <div style="text-align: center; font-size: 0.8rem; color: #666; font-weight: 500;">
+              Bài kiểm tra không giới hạn thời gian.
+            </div>
+            <hr style="border: 0; border-top: 1px solid #eee; margin: 0;">
+          {% endif %}
+
+          <!-- NÚT NỘP BÀI THU GỌN -->
+          <button class="btn" type="button" id="btn-open-submit-confirm" style="width: 100%; font-weight: 700; font-size: 0.95rem; padding: 0.65rem 0.8rem; cursor: pointer; border-radius: 6px;">
+            Nộp bài
+          </button>
+          
+          <div class="hint" style="font-size: 0.75rem; line-height: 1.3; color: #777; text-align: center; margin-top: -0.2rem;">
+            Nộp bài sẽ tự động ghi nhận điểm danh.
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </form>
+</div>
+
+<!-- BẢNG THÔNG BÁO XÁC NHẬN NỘP BÀI (MODAL POPUP) -->
+<div id="submit-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.5); z-index: 9999; align-items: center; justify-content: center;">
+  <div style="background: #fff; border-radius: 10px; padding: 1.8rem; width: 90%; max-width: 380px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.2); animation: fadeIn 0.2s ease;">
+    <h3 style="margin-top: 0; margin-bottom: 0.8rem; font-size: 1.15rem; color: #222;">Xác nhận nộp bài</h3>
+    <p style="font-size: 0.95rem; color: #444; margin-bottom: 1.5rem; line-height: 1.4;">
+      Bạn có chắc chắn muốn nộp bài kiểm tra này không?
+    </p>
+    
+    <div style="display: flex; gap: 0.8rem; justify-content: center;">
+      <button type="button" id="btn-cancel-submit" style="flex: 1; padding: 0.65rem; border: 1px solid #ccc; background: #f5f5f5; color: #333; border-radius: 6px; font-weight: 600; cursor: pointer;">
+        Hủy
+      </button>
+      <button type="button" id="btn-confirm-submit" style="flex: 1; padding: 0.65rem; border: none; background: var(--header-red, #b5473a); color: #fff; border-radius: 6px; font-weight: 600; cursor: pointer;">
+        Xác nhận
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+  @keyframes fadeIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+  }
+</style>
+
+<script>
+  var examInProgress = true;
+  var form = document.getElementById('test-form');
+  var submitModal = document.getElementById('submit-modal');
+  var btnOpenModal = document.getElementById('btn-open-submit-confirm');
+  var btnCancelSubmit = document.getElementById('btn-cancel-submit');
+  var btnConfirmSubmit = document.getElementById('btn-confirm-submit');
+
+  btnOpenModal.addEventListener('click', function () {
+    submitModal.style.display = 'flex';
+  });
+
+  btnCancelSubmit.addEventListener('click', function () {
+    submitModal.style.display = 'none';
+  });
+
+  btnConfirmSubmit.addEventListener('click', function () {
+    examInProgress = false;
+    submitModal.style.display = 'none';
+    form.submit();
+  });
+
+  window.addEventListener('beforeunload', function (e) {
+    if (examInProgress) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+</script>
+
+{% if exam['time_limit_minutes'] %}
+<script>
+(function () {
+  var rawDateStr = "{{ test['created_at'] }}".replace(" ", "T");
+  var createdAt = new Date(rawDateStr);
+  
+  if (isNaN(createdAt.getTime())) {
+    createdAt = new Date();
+  }
+
+  var limitMinutes = parseInt("{{ exam['time_limit_minutes'] or 0 }}", 10);
+  var deadline = createdAt.getTime() + limitMinutes * 60000;
+
+  var countdownEl = document.getElementById('countdown');
+  var timerBox = document.getElementById('timer-box');
+  var autoSubmitted = false;
+
+  function formatTime(ms) {
+    var totalSec = Math.max(0, Math.floor(ms / 1000));
+    var m = Math.floor(totalSec / 60);
+    var s = totalSec % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function tick() {
+    var remaining = deadline - Date.now();
+
+    if (remaining <= 0) {
+      if (!autoSubmitted) {
+        autoSubmitted = true;
+        examInProgress = false;
+        if (timerBox) {
+          timerBox.innerHTML = '<strong style="color: #000; font-size: 0.85rem;">Hết giờ — đang tự động nộp bài...</strong>';
+        }
+        submitModal.style.display = 'none';
+        form.submit();
+      }
+      return;
+    }
+
+    if (countdownEl) countdownEl.textContent = formatTime(remaining);
+
+    setTimeout(tick, 1000);
+  }
+
+  tick();
+})();
+</script>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- GHI ĐÈ CSS CỦA BASE.HTML ĐỂ MỞ RỘNG TOÀN BỘ KHUNG CHỨA -->
+<style>
+  /* Tìm và phá bỏ giới hạn max-width của container cha trong base.html */
+  main, .container, .content, .main-content, body > div {
+    max-width: 100% !important;
+    width: 100% !important;
+    padding-left: 1rem !important;
+    padding-right: 1.5rem !important;
+    box-sizing: border-box !important;
+  }
+</style>
+
+<div style="width: 100%; box-sizing: border-box;">
+  <div class="section-label" style="font-weight: 600; font-size: 1.1rem; margin-bottom: 1rem;">
+    {{ exam['title'] }} &middot; {{ test['student_name'] }} ({{ test['student_code'] }})
+  </div>
+
+  <form method="POST" action="{{ url_for('submit_test', test_id=test['id']) }}" id="test-form" style="width: 100%;">
+    
+    <!-- LAYOUT FLEXBOX 2 CỘT DÃN KÍN TỪ KẺ DỌC BÊN TRÁI SÁT TỚI MÉP MÀN HÌNH BÊN PHẢI -->
+    <div style="display: flex; gap: 1.5rem; width: 100%; align-items: flex-start; box-sizing: border-box;">
+      
+      <!-- CỘT GIỮA (BÀI TẬP): KÉO ĐỤNG KẺ DỌC TRÁI VÀ PHÓNG TO HẾT CỠ -->
+      <div style="flex: 1; min-width: 0;">
+        <div class="board" style="padding: 1.5rem 2rem; width: 100%; box-sizing: border-box;">
+          {% for q in questions %}
+            <div class="question-block" style="margin-bottom: 2.2rem;">
+              <div class="q-number" style="font-weight: 700; font-size: 1.1rem; margin-bottom: 0.6rem; color: var(--header-red, #b5473a);">
+                Câu {{ q['index'] }}
+              </div>
+              <div class="q-text" style="font-size: 1.05rem; line-height: 1.6; margin-bottom: 1rem; font-weight: 500; color: #222;">
+                {{ q['question_text'] }}
+              </div>
+              <div class="options" style="display: flex; flex-direction: column; gap: 0.6rem;">
+                {% for letter, text in q['options'] %}
+                  <label class="option-row" style="display: flex; align-items: center; width: 100%; padding: 0.7rem 1rem; border: 1px solid #e2e8f0; border-radius: 8px; cursor: pointer; transition: background 0.2s; box-sizing: border-box;">
+                    <input type="radio" name="q_{{ q['id'] }}" value="{{ letter }}" style="margin-right: 0.8rem; transform: scale(1.2);">
+                    <span style="font-size: 1rem; color: #333;">
+                      <strong class="letter" style="color: var(--header-red, #b5473a); margin-right: 0.3rem;">{{ letter }}.</strong> {{ text }}
+                    </span>
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- CỘT PHẢI (ĐẾM NGƯỢC & NỘP BÀI): SÁT LỀ PHẢI MÀN HÌNH -->
+      <div style="width: 320px; flex-shrink: 0; position: sticky; top: 1rem; z-index: 10;">
+        <div class="board" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.2rem; border: 1px solid #e0e0e0; background: #fff; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.06);">
+          
+          {% if exam['time_limit_minutes'] %}
+            <div id="timer-box" style="display: flex; flex-direction: column; gap: 0.3rem; text-align: center;">
+              <span style="font-size: 0.85rem; font-weight: 700; color: #666; text-transform: uppercase; letter-spacing: 0.8px;">Thời gian còn lại</span>
+              <span id="countdown" style="font-weight: 900; font-size: 2.6rem; color: #000000; letter-spacing: 1px; line-height: 1.1;">--:--</span>
+            </div>
+            <hr style="border: 0; border-top: 1px solid #eee; margin: 0;">
+          {% else %}
+            <div style="text-align: center; font-size: 0.9rem; color: #666; font-weight: 500;">
+              Bài kiểm tra không giới hạn thời gian.
+            </div>
+            <hr style="border: 0; border-top: 1px solid #eee; margin: 0;">
+          {% endif %}
+
+          <button class="btn" type="submit" style="width: 100%; font-weight: 700; font-size: 1.05rem; padding: 0.9rem 1rem; cursor: pointer; border-radius: 8px;">
+            Nộp bài
+          </button>
+          
+          <div class="hint" style="font-size: 0.82rem; line-height: 1.4; color: #666; text-align: center; margin-top: -0.3rem;">
+            Nộp bài sẽ tự động ghi nhận điểm danh có mặt cho buổi học này.
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </form>
+</div>
+
+<script>
+  var examInProgress = true;
+  window.addEventListener('beforeunload', function (e) {
+    if (examInProgress) {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+  document.getElementById('test-form').addEventListener('submit', function () {
+    examInProgress = false;
+  });
+</script>
+
+{% if exam['time_limit_minutes'] %}
+<script>
+(function () {
+  var rawDateStr = "{{ test['created_at'] }}".replace(" ", "T");
+  var createdAt = new Date(rawDateStr);
+  
+  if (isNaN(createdAt.getTime())) {
+    createdAt = new Date();
+  }
+
+  var limitMinutes = parseInt("{{ exam['time_limit_minutes'] or 0 }}", 10);
+  var deadline = createdAt.getTime() + limitMinutes * 60000;
+
+  var countdownEl = document.getElementById('countdown');
+  var timerBox = document.getElementById('timer-box');
+  var form = document.getElementById('test-form');
+  var autoSubmitted = false;
+
+  function formatTime(ms) {
+    var totalSec = Math.max(0, Math.floor(ms / 1000));
+    var m = Math.floor(totalSec / 60);
+    var s = totalSec % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function tick() {
+    var remaining = deadline - Date.now();
+
+    if (remaining <= 0) {
+      if (!autoSubmitted) {
+        autoSubmitted = true;
+        examInProgress = false;
+        if (timerBox) {
+          timerBox.innerHTML = '<strong style="color: #000; font-size: 0.95rem;">Hết giờ — đang tự động nộp bài...</strong>';
+        }
+        form.submit();
+      }
+      return;
+    }
+
+    if (countdownEl) countdownEl.textContent = formatTime(remaining);
+
+    setTimeout(tick, 1000);
+  }
+
+  tick();
+})();
+</script>
+{% endif %}
+
+{% endblock %}

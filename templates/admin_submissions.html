@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+  {% include "_admin_tabs.html" %}
+  <div class="section-label">Điểm danh &amp; kết quả &middot; {{ exam['title'] }}</div>
+  {% if rows %}
+    <table class="admin-table">
+      <thead>
+        <tr><th>Họ tên</th><th>Mã số</th><th>Điểm</th><th>Nộp lúc</th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr>
+            <td>{{ r['student_name'] }}</td>
+            <td>{{ r['student_code'] }}</td>
+            <td>{{ r['score'] }}/{{ r['total'] }}</td>
+            <td>{{ r['submitted_at'] }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="board empty-note">Chưa có học sinh nào nộp bài.</div>
+  {% endif %}
+{% endblock %}

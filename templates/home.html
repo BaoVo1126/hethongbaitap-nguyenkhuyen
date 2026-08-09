@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="section-label">Bài tập hôm nay</div>
+  {% if today_exams %}
+    <div class="exam-list" style="margin-bottom:2rem;">
+      {% for e in today_exams %}
+        <a class="exam-card" href="{{ url_for('exam_entry', exam_id=e['id']) }}">
+          {% if e['subject'] %}<span class="subject">{{ e['subject'] }}</span>{% endif %}
+          <div class="title">{{ e['title'] }}</div>
+          <div class="meta">Đăng lúc {{ e['created_at'] }}</div>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="board empty-note" style="margin-bottom:2rem;">Chưa có bài tập nào được mở hôm nay.</div>
+  {% endif %}
+
+  {% if upcoming_exams %}
+    <div class="section-label">Đặt trước &middot; sắp mở</div>
+    <div class="exam-list">
+      {% for e in upcoming_exams %}
+        <div class="exam-card upcoming">
+          {% if e['subject'] %}<span class="subject">{{ e['subject'] }}</span>{% endif %}
+          <div class="title">{{ e['title'] }}</div>
+          <div class="meta">Sẽ mở vào ngày {{ e['available_date'] }}</div>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endblock %}

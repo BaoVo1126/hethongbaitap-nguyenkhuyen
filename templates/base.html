@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ center_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand-mark">{{ center_name[:1] }}</div>
+    <div>
+      <div class="eyebrow">Hệ thống trung tâm</div>
+      <h1>{{ center_name }}</h1>
+    </div>
+    <a class="teacher-link" href="{{ url_for('admin_home') }}">Giáo viên</a>
+  </div>
+
+  <div class="app-shell">
+    <aside class="sidebar">
+      <!-- ĐÃ BỎ HẲN KHỐI LOGO VÀ TÊN TRUNG TÂM Ở SIDEBAR ĐỂ KHÔNG BỊ TRÙNG VỚI HEADER -->
+
+      <a class="sidebar-item {{ 'active' if active == 'kiemtra' else '' }}" href="{{ url_for('home') }}">
+        <span class="sidebar-icon">&#9998;</span> Kiểm tra
+      </a>
+      <a class="sidebar-item {{ 'active' if active == 'tailieu' else '' }}" href="{{ url_for('public_documents') }}">
+        <span class="sidebar-icon">&#128196;</span> Tài liệu
+      </a>
+
+      <!-- ẨN TAB THÔNG TIN ĐỐI VỚI HỌC SINH (CHỈ HIỂN THỊ KHI TRONG TRANG ADMIN HOẶC TRUY CẬP MỤC THÔNG TIN) -->
+      {% if request.path.startswith('/admin') or active == 'thongtin' %}
+        <a class="sidebar-item {{ 'active' if active == 'thongtin' else '' }}" href="{{ url_for('info_page') }}">
+          <span class="sidebar-icon">&#8505;</span> Thông tin
+        </a>
+      {% endif %}
+    </aside>
+
+    <main class="wrap">
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
+        {% endif %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

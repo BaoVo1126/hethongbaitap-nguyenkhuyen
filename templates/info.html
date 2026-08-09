@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.2rem;">
+    <div class="section-label" style="margin-bottom: 0;">📊 Lịch sử & Kết quả làm bài của Học sinh</div>
+    <span style="font-size: 0.85rem; background: #fff3cd; color: #856404; padding: 0.4rem 0.8rem; border-radius: 6px; font-weight: 600;">
+      🔒 Trang dành riêng cho Giáo viên
+    </span>
+  </div>
+
+  <div class="board" style="padding: 1.2rem; overflow-x: auto;">
+    {% if history %}
+      <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.95rem;">
+        <thead>
+          <tr style="border-bottom: 2px solid #eee; background-color: #f8f9fa;">
+            <th style="padding: 0.8rem;">#</th>
+            <th style="padding: 0.8rem;">Họ &amp; Tên học sinh</th>
+            <th style="padding: 0.8rem;">Mã số (MSSV)</th>
+            <th style="padding: 0.8rem;">Tên bài kiểm tra</th>
+            <th style="padding: 0.8rem; text-align: center;">Điểm số</th>
+            <th style="padding: 0.8rem; text-align: center;">Thời gian làm</th>
+            <th style="padding: 0.8rem; text-align: right;">Thời điểm nộp</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for h in history %}
+            <tr style="border-bottom: 1px solid #f0f0f0;">
+              <td style="padding: 0.8rem; color: #777;">{{ loop.index }}</td>
+              <td style="padding: 0.8rem; font-weight: 600;">{{ h['student_name'] }}</td>
+              <td style="padding: 0.8rem; color: #555;"><code>{{ h['student_code'] }}</code></td>
+              <td style="padding: 0.8rem;">
+                {{ h['exam_title'] }}
+                {% if h['subject'] %}<span style="font-size: 0.8rem; color: #888;">({{ h['subject'] }})</span>{% endif %}
+              </td>
+              <td style="padding: 0.8rem; text-align: center;">
+                <span style="font-weight: 700; color: var(--header-red, #b5473a); font-size: 1.05rem;">
+                  {{ h['score'] }} / {{ h['total'] }}
+                </span>
+              </td>
+              <td style="padding: 0.8rem; text-align: center; color: #444;">{{ h['duration'] }}</td>
+              <td style="padding: 0.8rem; text-align: right; color: #666; font-size: 0.85rem;">{{ h['submitted_at'] }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div style="text-align: center; color: #888; padding: 2rem 0;">
+        Chưa có lượt nộp bài nào từ học sinh.
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

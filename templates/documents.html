@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="section-label">Tài liệu</div>
+  <div class="board">
+    {% if docs %}
+      <table class="admin-table">
+        <thead><tr><th>Tên tệp</th><th>Ngày đăng</th></tr></thead>
+        <tbody>
+          {% for d in docs %}
+            <tr>
+              <td><a href="{{ url_for('serve_document', filename=d['stored_filename']) }}">{{ d['original_filename'] }}</a></td>
+              <td>{{ d['uploaded_at'] }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="empty-note">Chưa có tài liệu nào được đăng.</div>
+    {% endif %}
+  </div>
+{% endblock %}
