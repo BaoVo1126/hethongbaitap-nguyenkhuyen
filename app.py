@@ -67,9 +67,9 @@ CENTER_INFO = {
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "demo-secret-key-doi-khi-deploy-that"
 app.config["MAX_CONTENT_LENGTH"] = 30 * 1024 * 1024  # 30MB
-# Exact exam mode: keep question and A/B/C/D order identical to the source file.
-# Set RANDOMIZE_EXAM=1 only if you intentionally want randomized variants.
-RANDOMIZE_EXAM = os.environ.get("RANDOMIZE_EXAM", "0") == "1"
+
+# BẬT MẶC ĐỊNH CHẾ ĐỘ XÁO TRỘN CÂU HỎI VÀ ĐÁP ÁN THEO MÃ SỐ HỌC SINH (RANDOMIZE_EXAM = True)
+RANDOMIZE_EXAM = True
 
 
 def get_db():
@@ -154,13 +154,6 @@ def init_db():
 # --------------------------------------------------------------------------
 # Pipeline: deterministic document -> exact question extraction
 # --------------------------------------------------------------------------
-# IMPORTANT:
-# This project is an "EXTRACT" system, not a question-generation system.
-# The uploaded exam is the source of truth.  Therefore we DO NOT send the
-# source text to an LLM for rewriting/paraphrasing.  We first try to extract
-# the original text/layout deterministically and only use OCR when the file is
-# actually scanned.
-# --------------------------------------------------------------------------
 
 
 def _clean_extracted_line(line: str) -> str:
@@ -219,7 +212,6 @@ def _read_pptx(file_path: str) -> str:
 
 
 def _ocr_image_paddle(image) -> str:
-    """OCR one PIL/NumPy image. Returns text only; no LLM involved."""
     if not PADDLE_AVAILABLE or _ocr is None:
         return ""
     try:
@@ -227,8 +219,6 @@ def _ocr_image_paddle(image) -> str:
         img_np = np.array(image)
         result = _ocr.predict(img_np)
 
-        # PaddleOCR 3.x returns result objects/dicts. Keep this adapter small
-        # and tolerant because minor PaddleOCR versions expose different APIs.
         chunks = []
         for page_result in result or []:
             data = None
@@ -275,25 +265,14 @@ def _ocr_image_tesseract(image) -> str:
 
 
 def _pdf_has_real_text(text: str) -> bool:
-    """Detect a digital/text PDF instead of relying on an arbitrary 100-char rule."""
     if not text or len(text.strip()) < 40:
         return False
-    # An exam/question PDF normally exposes question numbers or ordinary words.
     question_hits = len(re.findall(r"(?m)^\s*\d+\.\d+\.\s+", text))
     word_hits = len(re.findall(r"[A-Za-zÀ-ỹ]{3,}", text))
     return question_hits >= 1 or word_hits >= 20
 
 
 def extract_text_from_file(file_path: str) -> str:
-    """
-    Universal document ingestion.
-
-    Priority:
-      PDF/DOCX/PPTX/TXT -> native text first
-      scanned PDF/image -> PaddleOCR -> Tesseract fallback
-
-    No LLM is used here because exact extraction is required.
-    """
     ext = os.path.splitext(file_path)[1].lower()
 
     if ext == ".txt":
@@ -309,14 +288,12 @@ def extract_text_from_file(file_path: str) -> str:
         doc = fitz.open(file_path)
         native_pages = []
         for page in doc:
-            # sort=True gives a much better reading order for normal PDFs.
             native_pages.append(page.get_text("text", sort=True))
         native_text = "\n".join(native_pages)
 
         if _pdf_has_real_text(native_text):
             return native_text
 
-        # Scanned PDF: render each page and OCR it.
         if PDF2IMAGE_AVAILABLE:
             try:
                 images = convert_from_path(file_path, dpi=220)
@@ -347,18 +324,10 @@ def extract_text_from_file(file_path: str) -> str:
 
 
 def _parse_option_lines(text: str):
-    """
-    Parse options from a PDF text block.
-
-    The key is anchoring A/B/C/D to the START of a line. This prevents
-    chemistry text such as `C = O` or `Bromine` from being mistaken for an
-    option label.
-    """
     options = []
     current_letter = None
     current_parts = []
 
-    # A PDF block may contain A/B on one line and C/D in another block.
     for raw_line in text.splitlines():
         line = _clean_extracted_line(raw_line)
         if not line:
@@ -371,7 +340,6 @@ def _parse_option_lines(text: str):
             current_letter = m.group(1)
             current_parts = [m.group(2)] if m.group(2) else []
         elif current_letter is not None:
-            # Continuation line of an option, e.g. `(n ≥` + `1)` or `D` + `CH2`.
             current_parts.append(line)
 
     if current_letter is not None:
@@ -381,13 +349,6 @@ def _parse_option_lines(text: str):
 
 
 def _extract_questions_from_pdf_layout(file_path: str):
-    """
-    Layout-aware extractor for digital PDFs.
-
-    It uses PyMuPDF blocks rather than flattening the whole PDF into one long
-    string. That matters for the sample exam because options can be arranged
-    in 1, 2 or 4 columns and some formulas wrap over multiple lines.
-    """
     if not PDF_AVAILABLE:
         return []
 
@@ -400,7 +361,6 @@ def _extract_questions_from_pdf_layout(file_path: str):
         if current is None:
             return
 
-        # We only create an MCQ if all A/B/C/D options are present.
         parsed_options = {}
         orphan_text = []
 
@@ -408,8 +368,6 @@ def _extract_questions_from_pdf_layout(file_path: str):
             parsed = _parse_option_lines(block_text)
             if parsed:
                 for letter, value in parsed:
-                    # Keep the first real value if a PDF extraction happens to
-                    # duplicate a label in another text block.
                     if letter not in parsed_options:
                         parsed_options[letter] = value
                     elif value and not parsed_options[letter]:
@@ -419,12 +377,7 @@ def _extract_questions_from_pdf_layout(file_path: str):
                 if cleaned and not _looks_like_header_or_footer(cleaned):
                     orphan_text.append(cleaned)
 
-        # A few PDFs split the last option into an unlabeled continuation block.
-        # If exactly one option is empty, attach nearby orphan text to it.
         if len(parsed_options) == 4 and orphan_text:
-            # Some PDFs place the tail of D in a separate text block (the
-            # sample has: `D / CH2 / =` in one block and `CHCHO` in another).
-            # Header/footer blocks have already been filtered above.
             tail = " ".join(orphan_text).strip()
             if tail:
                 parsed_options["D"] = (parsed_options.get("D", "") + " " + tail).strip()
@@ -437,7 +390,6 @@ def _extract_questions_from_pdf_layout(file_path: str):
                 "option_b": parsed_options["B"],
                 "option_c": parsed_options["C"],
                 "option_d": parsed_options["D"],
-                # The sample PDF contains no answer key. Never invent one.
                 "correct_answer": None,
                 "source_page": current["page"],
             })
@@ -452,7 +404,6 @@ def _extract_questions_from_pdf_layout(file_path: str):
             if not lines:
                 continue
 
-            # Only a line beginning with e.g. `23.1.` starts a new question.
             m = re.match(r"^\s*(\d+\.\d+)\.\s*(.*)$", lines[0])
             if m:
                 flush_current()
@@ -485,18 +436,15 @@ def _looks_like_header_or_footer(text: str) -> bool:
     )
     if any(x in t for x in header_words):
         return True
-    # Ignore isolated page numbers and tiny footer artifacts.
     if re.fullmatch(r"[-–—\s]*\d+[-–—\s]*", t):
         return True
     return False
 
 
 def _parse_questions_from_text_generic(raw_text: str):
-    """Fallback for TXT/DOCX/PPTX/OCR text where page coordinates do not exist."""
     if not raw_text:
         return []
 
-    # Keep line boundaries; do NOT flatten the whole document before parsing.
     lines = raw_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     starts = []
     for i, line in enumerate(lines):
@@ -540,12 +488,6 @@ def _parse_questions_from_text_generic(raw_text: str):
 
 
 def _detect_answer_key(raw_text: str):
-    """
-    Optional answer-key parser.
-
-    We only use an answer if it is explicitly present in the uploaded file.
-    We NEVER ask an LLM to guess the correct answer.
-    """
     if not raw_text:
         return {}
     answers = {}
@@ -560,16 +502,6 @@ def _detect_answer_key(raw_text: str):
 
 
 def parse_questions_pipeline(raw_text: str, file_path: str = None):
-    """
-    EXACT EXTRACTION PIPELINE
-
-    1. For digital PDF -> layout-aware PyMuPDF parser.
-    2. For other text-based formats/OCR output -> line-based parser.
-    3. Optional explicit answer-key extraction.
-
-    There is intentionally NO LLM call here. The requirement is to reproduce
-    the source questions/options, not generate new questions.
-    """
     if not raw_text or not raw_text.strip():
         return []
 
@@ -582,7 +514,6 @@ def parse_questions_pipeline(raw_text: str, file_path: str = None):
 
     explicit_answers = _detect_answer_key(raw_text)
     for q in questions:
-        # question_text starts with `23.1.` -> key `23.1`
         number_match = re.match(r"^(\d+\.\d+)\.", q["question_text"])
         number = number_match.group(1) if number_match else None
         q["correct_answer"] = explicit_answers.get(number)
@@ -590,7 +521,6 @@ def parse_questions_pipeline(raw_text: str, file_path: str = None):
     return questions
 
 
-# Backward-compatible name used by older parts of the application.
 def parse_questions_from_text_regex(raw_text: str):
     return _parse_questions_from_text_generic(raw_text)
 
@@ -599,12 +529,14 @@ def parse_questions_from_text_regex(raw_text: str):
 # --------------------------------------------------------------------------
 
 def seeded_random(exam_id: int, student_code: str) -> random.Random:
-    key = f"{exam_id}:{student_code}".encode("utf-8")
+    """Tạo seed ngẫu nhiên duy nhất dựa trên Mã số học sinh và Đề thi."""
+    key = f"{exam_id}:{student_code.strip().lower()}".encode("utf-8")
     seed = int(hashlib.sha256(key).hexdigest(), 16) % (2**32)
     return random.Random(seed)
 
 
 def generate_test(exam_id: int, student_name: str, student_code: str, num_questions: int = None):
+    """Tạo đề thi ngẫu nhiên hóa câu hỏi & đáp án A/B/C/D dựa trên MSSV."""
     db = get_db()
     all_questions = db.execute(
         "SELECT * FROM questions WHERE exam_id = ? ORDER BY order_index", (exam_id,)
@@ -612,17 +544,18 @@ def generate_test(exam_id: int, student_name: str, student_code: str, num_questi
     if not all_questions:
         return None
 
+    # Khởi tạo thuật toán tráo ngẫu nhiên dựa theo MSSV
     rng = seeded_random(exam_id, student_code)
     q_ids = [q["id"] for q in all_questions]
 
-    # Default is EXACT MODE: preserve the source question order and the
-    # source A/B/C/D option order. Randomization is opt-in only.
+    # 1. Xáo trộn thứ tự CÂU HỎI dựa trên MSSV
     if RANDOMIZE_EXAM:
         rng.shuffle(q_ids)
 
     if num_questions:
         q_ids = q_ids[:num_questions]
 
+    # 2. Xáo trộn thứ tự CÁC ĐÁP ÁN (A, B, C, D) dựa trên MSSV
     option_maps = {}
     for q in all_questions:
         if q["id"] not in q_ids:
@@ -739,7 +672,7 @@ def exam_start(exam_id):
     student_name = request.form.get("student_name", "").strip()
     student_code = request.form.get("student_code", "").strip()
     if not student_name or not student_code:
-        flash("Vui lòng nhập đầy đủ họ tên")
+        flash("Vui lòng nhập đầy đủ họ tên và mã sinh viên.")
         return redirect(url_for("exam_entry", exam_id=exam_id))
 
     test_id = generate_test(exam_id, student_name, student_code)
@@ -867,8 +800,6 @@ def admin_upload():
     title = request.form.get("title", "").strip() or "Đề chưa đặt tên"
     subject = request.form.get("subject", "").strip()
     available_date = request.form.get("available_date", "").strip() or None
-    
-    # Bổ sung nhận thời gian làm bài (phút) từ Form khi tải file lên
     time_limit_raw = request.form.get("time_limit_minutes", "").strip()
     time_limit_minutes = int(time_limit_raw) if time_limit_raw.isdigit() and int(time_limit_raw) > 0 else None
 
@@ -888,13 +819,9 @@ def admin_upload():
     saved_path = os.path.join(UPLOAD_DIR, saved_name)
     file.save(saved_path)
 
-    # 1. Document Parser & OCR Layer
     raw_text = extract_text_from_file(saved_path)
-
-    # 2. EXACT extraction pipeline
     parsed = parse_questions_pipeline(raw_text, saved_path) if raw_text else []
 
-    # 3. Database Layer (Lưu thời gian làm bài time_limit_minutes vào DB)
     db = get_db()
     cur = db.execute(
         "INSERT INTO exams (title, subject, source_image, raw_ocr_text, status, available_date, "
@@ -923,7 +850,6 @@ def admin_upload():
     return redirect(url_for("admin_edit_exam", exam_id=exam_id))
 
 
-# --- TÍNH NĂNG MỚI: Xóa Đề Thi ---
 @app.route("/admin/exam/<int:exam_id>/delete", methods=["POST"])
 def admin_delete_exam(exam_id):
     db = get_db()
@@ -1013,10 +939,10 @@ def admin_update_question(question_id):
     db.commit()
     return redirect(url_for("admin_edit_exam", exam_id=q["exam_id"]))
 
+
 @app.route("/admin/exam/<int:exam_id>/save_all_questions", methods=["POST"])
 def admin_save_all_questions(exam_id):
     db = get_db()
-    # Lấy toàn bộ danh sách ID câu hỏi được gửi lên từ Form
     question_ids = request.form.getlist("question_ids")
     
     for qid in question_ids:
@@ -1120,10 +1046,10 @@ def public_documents():
 @app.route("/info")
 def info_page():
     db = get_db()
-    # Truy vấn bảng submissions kết hợp với tests và exams để lấy đầy đủ lịch sử làm bài
     history_rows = db.execute(
         """
         SELECT 
+            s.id AS submission_id,
             t.student_name,
             t.student_code,
             e.title AS exam_title,
@@ -1139,7 +1065,6 @@ def info_page():
         """
     ).fetchall()
 
-    # Tính toán thời gian làm bài cho từng lượt nộp
     processed_history = []
     for row in history_rows:
         duration_str = "-"
@@ -1153,6 +1078,7 @@ def info_page():
             pass
 
         processed_history.append({
+            "submission_id": row["submission_id"],
             "student_name": row["student_name"],
             "student_code": row["student_code"],
             "exam_title": row["exam_title"],
@@ -1169,6 +1095,20 @@ def info_page():
         history=processed_history, 
         active="thongtin"
     )
+
+@app.route("/info/submission/<int:submission_id>/delete", methods=["POST"])
+def delete_submission(submission_id):
+    db = get_db()
+    # Tìm thông tin lượt nộp bài
+    sub = db.execute("SELECT * FROM submissions WHERE id = ?", (submission_id,)).fetchone()
+    if sub:
+        # Xóa lượt nộp bài (submission) và bản ghi khởi tạo đề thi tương ứng (tests)
+        db.execute("DELETE FROM submissions WHERE id = ?", (submission_id,))
+        db.execute("DELETE FROM tests WHERE id = ?", (sub["test_id"],))
+        db.commit()
+        flash("Đã xóa lượt làm bài của học sinh thành công.")
+    return redirect(url_for("info_page"))
+
 
 
 @app.route("/admin/documents/upload", methods=["POST"])
