@@ -135,6 +135,94 @@
     word-break: break-word;
   }
 
+  /* POPUP MÔ TẢ CẢNH BÁO THOÁT BÀI LÀM */
+  .exit-warning-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 99999;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .exit-warning-card {
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 1.8rem;
+    width: 90%;
+    max-width: 420px;
+    text-align: center;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.25);
+    animation: popIn 0.2s ease-out;
+  }
+
+  .exit-warning-icon {
+    font-size: 2.8rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .exit-warning-card h3 {
+    font-size: 1.25rem;
+    color: #c53030;
+    margin-bottom: 0.6rem;
+    font-weight: 700;
+  }
+
+  .exit-warning-card p {
+    font-size: 0.95rem;
+    color: #4a5568;
+    line-height: 1.5;
+    margin-bottom: 1.2rem;
+  }
+
+  .exit-warning-note {
+    background: #fff5f5;
+    border-left: 4px solid #e53e3e;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.88rem;
+    color: #c53030;
+    font-weight: 600;
+    border-radius: 4px;
+    margin-bottom: 1.5rem;
+    text-align: left;
+  }
+
+  .exit-warning-actions {
+    display: flex;
+    gap: 0.8rem;
+  }
+
+  .btn-stay {
+    flex: 1;
+    padding: 0.7rem;
+    border: 1px solid #cbd5e0;
+    background: #edf2f7;
+    color: #2d3748;
+    border-radius: 6px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .btn-exit-submit {
+    flex: 1;
+    padding: 0.7rem;
+    border: none;
+    background: #e53e3e;
+    color: #ffffff;
+    border-radius: 6px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  @keyframes popIn {
+    from { opacity: 0; transform: scale(0.9); }
+    to { opacity: 1; transform: scale(1); }
+  }
+
   /* TỐI ƯU HÓA DÀNH RIÊNG CHO MÀN HÌNH ĐIỆN THOẠI (MOBILE FIX) */
   @media (max-width: 768px) {
     .test-container {
@@ -157,7 +245,6 @@
       padding: 0.6rem;
     }
 
-    /* Đảm bảo thanh Timer cố định trên điện thoại không che câu hỏi */
     .timer-sticky-bar {
       position: sticky;
       top: 0px;
@@ -224,7 +311,7 @@
           {% endif %}
         </span>
       </div>
-      <button type="button" onclick="confirmSubmit()" class="btn-submit-exam">
+      <button type="button" onclick="showExitWarningModal()" class="btn-submit-exam">
         Nộp bài
       </button>
     </div>
@@ -254,24 +341,42 @@
   </form>
 </div>
 
+<!-- HỘP THOẠI XÁC NHẬN CẢNH BÁO THOÁT BÀI LÀM -->
+<div id="exit-warning-modal" class="exit-warning-overlay">
+  <div class="exit-warning-card">
+    <div class="exit-warning-icon">⚠️</div>
+    <h3>Xác nhận nộp bài / Thoát</h3>
+    <p>Bạn có chắc chắn muốn rời khỏi bài kiểm tra này không?</p>
+    
+    <div class="exit-warning-note">
+      📌 <strong>Ghi chú:</strong> Thoát bài làm là nộp bài! Hệ thống sẽ lập tức chấm điểm và ghi vào lịch sử làm bài.
+    </div>
+
+    <div class="exit-warning-actions">
+      <button type="button" class="btn-stay" onclick="closeExitWarningModal()">
+        Ở lại làm tiếp
+      </button>
+      <button type="button" class="btn-exit-submit" onclick="forceSubmitExam()">
+        Thoát & Nộp bài
+      </button>
+    </div>
+  </div>
+</div>
+
 <script>
-  // QUẢN LÝ THỜI GIAN LÀM BÀI AN TOÀN TRÊN ĐIỆN THOẠI
+  // QUẢN LÝ THỜI GIAN LÀM BÀI AN TOÀN
   var timeLimitMinutes = {{ exam.time_limit_minutes if exam.time_limit_minutes else 0 }};
   var totalSeconds = timeLimitMinutes * 60;
   var timerInterval = null;
   var isSubmitting = false;
 
-  function autoSubmitExam(reasonMessage) {
+  function forceSubmitExam() {
     if (isSubmitting) return;
     isSubmitting = true;
     
     if (timerInterval) clearInterval(timerInterval);
     
-    if (reasonMessage) {
-      alert(reasonMessage);
-    }
-    
-    // Tự động nộp form bài làm
+    // Gửi form lên server để lưu vào DB và chuyển hướng sang Lịch sử làm bài
     document.getElementById('exam-form').submit();
   }
 
@@ -282,7 +387,8 @@
     
     timerInterval = setInterval(function() {
       if (totalSeconds <= 0) {
-        autoSubmitExam('⏰ Đã hết thời gian làm bài! Hệ thống sẽ tự động nộp bài của bạn.');
+        alert('⏰ Đã hết thời gian làm bài! Hệ thống sẽ tự động nộp bài của bạn.');
+        forceSubmitExam();
         return;
       }
 
@@ -297,11 +403,12 @@
     }, 1000);
   }
 
-  function confirmSubmit() {
-    if (isSubmitting) return;
-    if (confirm('Bạn có chắc chắn muốn nộp bài thi này không?\n\n(Lưu ý: Thoát bài làm là nộp bài)')) {
-      autoSubmitExam();
-    }
+  function showExitWarningModal() {
+    document.getElementById('exit-warning-modal').style.display = 'flex';
+  }
+
+  function closeExitWarningModal() {
+    document.getElementById('exit-warning-modal').style.display = 'none';
   }
 
   function markAnswered(qid) {
@@ -311,25 +418,26 @@
     }
   }
 
-  // --- BỘ GIÁM SÁT CHỐNG CHUYỂN TAB & THOÁT TRANG ---
+  // --- BỘ GIÁM SÁT THOÁT TRANG / CHUYỂN TAB ---
 
-  // 1. Cảnh báo khi người dùng tắt/tải lại trang (BeforeUnload)
+  // 1. Cảnh báo khi tắt tab, tải lại trang hoặc bấm nút Back
   window.addEventListener('beforeunload', function (e) {
     if (!isSubmitting) {
-      var confirmationMessage = 'Bạn có muốn thoát khỏi bài làm không?\n\nChú ý: Thoát bài làm là nộp bài!';
+      var confirmationMessage = 'Bạn có muốn thoát khỏi bài làm không?\n\nGhi chú: Thoát bài làm là nộp bài!';
       (e || window.event).returnValue = confirmationMessage;
       return confirmationMessage;
     }
   });
 
-  // 2. Phát hiện hành vi chuyển sang Tab khác hoặc thu nhỏ trình duyệt (VisibilityChange)
+  // 2. Tự động bật Hộp thoại cảnh báo hoặc Nộp bài khi phát hiện chuyển sang Tab/Ứng dụng khác
   document.addEventListener('visibilitychange', function () {
     if (document.hidden && !isSubmitting) {
-      autoSubmitExam('⚠️ Bạn đã rời khỏi tab/màn hình làm bài!\n\nChú ý: Thoát bài làm là nộp bài. Hệ thống đã tự động ghi nhận và nộp bài làm của bạn.');
+      // Khi học sinh ẩn/chuyển tab, tự động chấm điểm & nộp bài lưu vào lịch sử
+      forceSubmitExam();
     }
   });
 
-  // Khởi động đếm ngược khi trang đã tải đầy đủ nội dung
+  // Khởi động đếm ngược khi trang đã tải xong
   window.addEventListener('DOMContentLoaded', function() {
     startTimer();
   });
