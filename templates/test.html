@@ -1,200 +1,312 @@
 {% extends "base.html" %}
-{% block content %}
 
-<!-- GHI ĐÈ CSS CỦA BASE.HTML ĐỂ MỞ RỘNG KHUNG CHỨA VÀ ẨN LOGO TRÙNG LẶP BÊN TRÁI -->
+{% block title %}Bài làm: {{ exam.title }} - {{ center_name }}{% endblock %}
+
+{% block content %}
 <style>
-  /* 1. Mở rộng khung chứa toàn màn hình */
-  main, .container, .content, .main-content, body > div {
-    max-width: 100% !important;
-    width: 100% !important;
-    padding-left: 1rem !important;
-    padding-right: 1.5rem !important;
-    box-sizing: border-box !important;
+  /* CẤU TRÚC GIAO DIỆN TRÊN MÁY TÍNH (KEEP ORIGINAL DESKTOP STYLES) */
+  .test-container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding-bottom: 3rem;
   }
 
-  /* 2. Ẩn Logo và Tên trung tâm ở Sidebar trái (tránh trùng lặp với Header) */
-  .sidebar .brand, 
-  .sidebar .logo-container, 
-  .sidebar h1, 
-  .sidebar h2,
-  .sidebar > div:first-child:has(img),
-  aside > div:first-child {
-    display: none !important;
+  .test-header-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  }
+
+  .test-title {
+    font-size: 1.4rem;
+    color: #2d3748;
+    margin-bottom: 0.5rem;
+    font-weight: 700;
+  }
+
+  .student-info-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    background: #f7fafc;
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    font-size: 0.95rem;
+    color: #4a5568;
+  }
+
+  /* THANH THỜI GIAN VÀ NỘP BÀI */
+  .timer-sticky-bar {
+    position: sticky;
+    top: 10px;
+    z-index: 90;
+    background: #ffffff;
+    border: 2px solid #b5473a;
+    border-radius: 8px;
+    padding: 0.8rem 1.2rem;
+    margin-bottom: 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  }
+
+  .timer-box {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: #b5473a;
+  }
+
+  .btn-submit-exam {
+    background: #b5473a;
+    color: #ffffff;
+    border: none;
+    padding: 0.65rem 1.4rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .btn-submit-exam:hover {
+    background: #96392e;
+  }
+
+  /* DANH SÁCH CÂU HỎI */
+  .question-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 1.25rem;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+  }
+
+  .question-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #1a202c;
+    margin-bottom: 1rem;
+    line-height: 1.5;
+  }
+
+  .options-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .option-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid #edf2f7;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    background: #fafafa;
+  }
+
+  .option-label:hover {
+    background: #f0f4f8;
+    border-color: #cbd5e0;
+  }
+
+  .option-label input[type="radio"] {
+    margin-top: 0.25rem;
+    accent-color: #b5473a;
+    width: 1.1rem;
+    height: 1.1rem;
+    flex-shrink: 0;
+  }
+
+  .option-text {
+    font-size: 0.98rem;
+    color: #2d3748;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+
+  /* TỐI ƯU HÓA DÀNH RIÊNG CHO MÀN HÌNH ĐIỆN THOẠI (MOBILE FIX) */
+  @media (max-width: 768px) {
+    .test-container {
+      padding: 0.5rem 0.25rem 4rem 0.25rem;
+    }
+
+    .test-header-card {
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .test-title {
+      font-size: 1.15rem;
+    }
+
+    .student-info-bar {
+      flex-direction: column;
+      gap: 0.3rem;
+      font-size: 0.88rem;
+      padding: 0.6rem;
+    }
+
+    /* Đảm bảo thanh Timer cố định trên điện thoại không che câu hỏi */
+    .timer-sticky-bar {
+      position: sticky;
+      top: 0px;
+      z-index: 80;
+      padding: 0.6rem 0.8rem;
+      margin-bottom: 1rem;
+      background: #ffffff;
+      border-width: 1.5px;
+    }
+
+    .timer-box {
+      font-size: 0.95rem;
+    }
+
+    .btn-submit-exam {
+      padding: 0.5rem 1rem;
+      font-size: 0.88rem;
+    }
+
+    .question-card {
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .question-title {
+      font-size: 0.98rem;
+    }
+
+    .option-label {
+      padding: 0.65rem 0.75rem;
+    }
+
+    .option-text {
+      font-size: 0.92rem;
+    }
   }
 </style>
 
-<div style="width: 100%; box-sizing: border-box;">
-  <div class="section-label" style="font-weight: 600; font-size: 1.1rem; margin-bottom: 1rem;">
-    {{ exam['title'] }} &middot; {{ test['student_name'] }} ({{ test['student_code'] }})
+<div class="test-container">
+  
+  <!-- CẠO ĐẦU TRANG BÀI THI -->
+  <div class="test-header-card">
+    <div class="test-title">📝 {{ exam.title }}</div>
+    <div class="student-info-bar">
+      <div><strong>Họ tên:</strong> {{ test.student_name }}</div>
+      <div><strong>Mã số:</strong> {{ test.student_code }}</div>
+      {% if exam.subject %}
+        <div><strong>Môn học:</strong> {{ exam.subject }}</div>
+      {% endif %}
+    </div>
   </div>
 
-  <form method="POST" action="{{ url_for('submit_test', test_id=test['id']) }}" id="test-form" style="width: 100%;">
+  <form id="exam-form" method="POST" action="{{ url_for('submit_test', test_id=test.id) }}">
     
-    <!-- LAYOUT FLEXBOX 2 CỘT -->
-    <div style="display: flex; gap: 1.5rem; width: 100%; align-items: flex-start; box-sizing: border-box;">
-      
-      <!-- CỘT GIỮA (BÀI TẬP): PHÓNG TO RỘNG RÃI -->
-      <div style="flex: 1; min-width: 0;">
-        <div class="board" style="padding: 1.5rem 2rem; width: 100%; box-sizing: border-box;">
-          {% for q in questions %}
-            <div class="question-block" style="margin-bottom: 2.2rem;">
-              <div class="q-number" style="font-weight: 700; font-size: 1.1rem; margin-bottom: 0.6rem; color: var(--header-red, #b5473a);">
-                Câu {{ q['index'] }}
-              </div>
-              <div class="q-text" style="font-size: 1.05rem; line-height: 1.6; margin-bottom: 1rem; font-weight: 500; color: #222;">
-                {{ q['question_text'] }}
-              </div>
-              <div class="options" style="display: flex; flex-direction: column; gap: 0.6rem;">
-                {% for letter, text in q['options'] %}
-                  <label class="option-row" style="display: flex; align-items: center; width: 100%; padding: 0.7rem 1rem; border: 1px solid #e2e8f0; border-radius: 8px; cursor: pointer; transition: background 0.2s; box-sizing: border-box;">
-                    <input type="radio" name="q_{{ q['id'] }}" value="{{ letter }}" style="margin-right: 0.8rem; transform: scale(1.2);">
-                    <span style="font-size: 1rem; color: #333;">
-                      <strong class="letter" style="color: var(--header-red, #b5473a); margin-right: 0.3rem;">{{ letter }}.</strong> {{ text }}
-                    </span>
-                  </label>
-                {% endfor %}
-              </div>
-            </div>
-          {% endfor %}
-        </div>
-      </div>
-
-      <!-- CỘT PHẢI (ĐẾM NGƯỢC & NỘP BÀI): THU NHỎ GỌN GÀNG (230PX) -->
-      <div style="width: 230px; flex-shrink: 0; position: sticky; top: 1rem; z-index: 10;">
-        <div class="board" style="padding: 1rem; display: flex; flex-direction: column; gap: 0.8rem; border: 1px solid #e0e0e0; background: #fff; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.05);">
-          
-          {% if exam['time_limit_minutes'] %}
-            <div id="timer-box" style="display: flex; flex-direction: column; gap: 0.2rem; text-align: center;">
-              <span style="font-size: 0.75rem; font-weight: 700; color: #777; text-transform: uppercase; letter-spacing: 0.5px;">Thời gian còn lại</span>
-              <span id="countdown" style="font-weight: 800; font-size: 1.8rem; color: #000000; letter-spacing: 0.5px; line-height: 1.2;">--:--</span>
-            </div>
-            <hr style="border: 0; border-top: 1px solid #eee; margin: 0;">
+    <!-- THANH ĐỒNG HỒ & NÚT NỘP BÀI -->
+    <div class="timer-sticky-bar">
+      <div class="timer-box">
+        <span>⏱️</span>
+        <span id="timer-display">
+          {% if exam.time_limit_minutes %}
+            {{ exam.time_limit_minutes }}:00
           {% else %}
-            <div style="text-align: center; font-size: 0.8rem; color: #666; font-weight: 500;">
-              Bài kiểm tra không giới hạn thời gian.
-            </div>
-            <hr style="border: 0; border-top: 1px solid #eee; margin: 0;">
+            Không giới hạn
           {% endif %}
+        </span>
+      </div>
+      <button type="button" onclick="confirmSubmit()" class="btn-submit-exam">
+        Nộp bài
+      </button>
+    </div>
 
-          <!-- NÚT NỘP BÀI THU GỌN -->
-          <button class="btn" type="button" id="btn-open-submit-confirm" style="width: 100%; font-weight: 700; font-size: 0.95rem; padding: 0.65rem 0.8rem; cursor: pointer; border-radius: 6px;">
-            Nộp bài
-          </button>
-          
-          <div class="hint" style="font-size: 0.75rem; line-height: 1.3; color: #777; text-align: center; margin-top: -0.2rem;">
-            Nộp bài sẽ tự động ghi nhận điểm danh.
+    <!-- DANH SÁCH CÂU HỎI -->
+    <div class="questions-wrapper">
+      {% for q in questions %}
+        <div class="question-card" id="q-card-{{ q.id }}">
+          <div class="question-title">
+            <strong>Câu {{ q.index }}:</strong> {{ q.question_text }}
+          </div>
+          <div class="options-group">
+            {% for letter, opt_text in q.options %}
+              <label class="option-label">
+                <input type="radio" 
+                       name="q_{{ q.id }}" 
+                       value="{{ letter }}"
+                       onchange="markAnswered({{ q.id }})">
+                <span class="option-text"><strong>{{ letter }}.</strong> {{ opt_text }}</span>
+              </label>
+            {% endfor %}
           </div>
         </div>
-      </div>
-
+      {% endfor %}
     </div>
+
   </form>
 </div>
 
-<!-- BẢNG THÔNG BÁO XÁC NHẬN NỘP BÀI (MODAL POPUP) -->
-<div id="submit-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.5); z-index: 9999; align-items: center; justify-content: center;">
-  <div style="background: #fff; border-radius: 10px; padding: 1.8rem; width: 90%; max-width: 380px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.2); animation: fadeIn 0.2s ease;">
-    <h3 style="margin-top: 0; margin-bottom: 0.8rem; font-size: 1.15rem; color: #222;">Xác nhận nộp bài</h3>
-    <p style="font-size: 0.95rem; color: #444; margin-bottom: 1.5rem; line-height: 1.4;">
-      Bạn có chắc chắn muốn nộp bài kiểm tra này không?
-    </p>
+<script>
+  // QUẢN LÝ THỜI GIAN LÀM BÀI AN TOÀN TRÊN ĐIỆN THOẠI
+  var timeLimitMinutes = {{ exam.time_limit_minutes if exam.time_limit_minutes else 0 }};
+  var totalSeconds = timeLimitMinutes * 60;
+  var timerInterval = null;
+  var isSubmitting = false;
+
+  function startTimer() {
+    if (totalSeconds <= 0) return;
+
+    var display = document.getElementById('timer-display');
     
-    <div style="display: flex; gap: 0.8rem; justify-content: center;">
-      <button type="button" id="btn-cancel-submit" style="flex: 1; padding: 0.65rem; border: 1px solid #ccc; background: #f5f5f5; color: #333; border-radius: 6px; font-weight: 600; cursor: pointer;">
-        Hủy
-      </button>
-      <button type="button" id="btn-confirm-submit" style="flex: 1; padding: 0.65rem; border: none; background: var(--header-red, #b5473a); color: #fff; border-radius: 6px; font-weight: 600; cursor: pointer;">
-        Xác nhận
-      </button>
-    </div>
-  </div>
-</div>
-
-<style>
-  @keyframes fadeIn {
-    from { opacity: 0; transform: scale(0.95); }
-    to { opacity: 1; transform: scale(1); }
-  }
-</style>
-
-<script>
-  var examInProgress = true;
-  var form = document.getElementById('test-form');
-  var submitModal = document.getElementById('submit-modal');
-  var btnOpenModal = document.getElementById('btn-open-submit-confirm');
-  var btnCancelSubmit = document.getElementById('btn-cancel-submit');
-  var btnConfirmSubmit = document.getElementById('btn-confirm-submit');
-
-  btnOpenModal.addEventListener('click', function () {
-    submitModal.style.display = 'flex';
-  });
-
-  btnCancelSubmit.addEventListener('click', function () {
-    submitModal.style.display = 'none';
-  });
-
-  btnConfirmSubmit.addEventListener('click', function () {
-    examInProgress = false;
-    submitModal.style.display = 'none';
-    form.submit();
-  });
-
-  window.addEventListener('beforeunload', function (e) {
-    if (examInProgress) {
-      e.preventDefault();
-      e.returnValue = '';
-    }
-  });
-</script>
-
-{% if exam['time_limit_minutes'] %}
-<script>
-(function () {
-  var rawDateStr = "{{ test['created_at'] }}".replace(" ", "T");
-  var createdAt = new Date(rawDateStr);
-  
-  if (isNaN(createdAt.getTime())) {
-    createdAt = new Date();
-  }
-
-  var limitMinutes = parseInt("{{ exam['time_limit_minutes'] or 0 }}", 10);
-  var deadline = createdAt.getTime() + limitMinutes * 60000;
-
-  var countdownEl = document.getElementById('countdown');
-  var timerBox = document.getElementById('timer-box');
-  var autoSubmitted = false;
-
-  function formatTime(ms) {
-    var totalSec = Math.max(0, Math.floor(ms / 1000));
-    var m = Math.floor(totalSec / 60);
-    var s = totalSec % 60;
-    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
-  }
-
-  function tick() {
-    var remaining = deadline - Date.now();
-
-    if (remaining <= 0) {
-      if (!autoSubmitted) {
-        autoSubmitted = true;
-        examInProgress = false;
-        if (timerBox) {
-          timerBox.innerHTML = '<strong style="color: #000; font-size: 0.85rem;">Hết giờ — đang tự động nộp bài...</strong>';
+    timerInterval = setInterval(function() {
+      if (totalSeconds <= 0) {
+        clearInterval(timerInterval);
+        if (!isSubmitting) {
+          isSubmitting = true;
+          alert('⏰ Đã hết thời gian làm bài! Hệ thống sẽ tự động nộp bài của bạn.');
+          document.getElementById('exam-form').submit();
         }
-        submitModal.style.display = 'none';
-        form.submit();
+        return;
       }
-      return;
-    }
 
-    if (countdownEl) countdownEl.textContent = formatTime(remaining);
-
-    setTimeout(tick, 1000);
+      totalSeconds--;
+      var m = Math.floor(totalSeconds / 60);
+      var s = totalSeconds % 60;
+      display.textContent = (m < 10 ? "0" + m : m) + ":" + (s < 10 ? "0" + s : s);
+      
+      if (totalSeconds <= 300) { // Đổi màu cảnh báo 5 phút cuối
+        display.style.color = "#e53e3e";
+      }
+    }, 1000);
   }
 
-  tick();
-})();
-</script>
-{% endif %}
+  function confirmSubmit() {
+    if (isSubmitting) return;
+    if (confirm('Bạn có chắc chắn muốn nộp bài thi này không?')) {
+      isSubmitting = true;
+      if (timerInterval) clearInterval(timerInterval);
+      document.getElementById('exam-form').submit();
+    }
+  }
 
+  function markAnswered(qid) {
+    var card = document.getElementById('q-card-' + qid);
+    if (card) {
+      card.style.borderColor = "#cbd5e0";
+    }
+  }
+
+  // Khởi động đếm ngược khi trang đã tải đầy đủ nội dung
+  window.addEventListener('DOMContentLoaded', function() {
+    startTimer();
+  });
+</script>
 {% endblock %}
