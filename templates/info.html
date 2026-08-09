@@ -18,7 +18,8 @@
             <th style="padding: 0.8rem;">Tên bài kiểm tra</th>
             <th style="padding: 0.8rem; text-align: center;">Điểm số</th>
             <th style="padding: 0.8rem; text-align: center;">Thời gian làm</th>
-            <th style="padding: 0.8rem; text-align: right;">Thời điểm nộp</th>
+            <th style="padding: 0.8rem; text-align: center;">Thời điểm nộp</th>
+            <th style="padding: 0.8rem; text-align: center;">Hành động</th>
           </tr>
         </thead>
         <tbody>
@@ -37,7 +38,18 @@
                 </span>
               </td>
               <td style="padding: 0.8rem; text-align: center; color: #444;">{{ h['duration'] }}</td>
-              <td style="padding: 0.8rem; text-align: right; color: #666; font-size: 0.85rem;">{{ h['submitted_at'] }}</td>
+              <td style="padding: 0.8rem; text-align: center; color: #666; font-size: 0.85rem;">{{ h['submitted_at'] }}</td>
+              
+              <!-- CỘT NÚT XÓA: Sử dụng data-url và data-name giúp VS Code không bị gạch đỏ -->
+              <td style="padding: 0.8rem; text-align: center;">
+                <button type="button" 
+                        class="btn-delete-sub"
+                        data-url="{{ url_for('delete_submission', submission_id=h['submission_id']) }}"
+                        data-name="{{ h['student_name'] }}"
+                        style="background: #dc3545; color: #fff; border: none; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: background 0.2s;">
+                  🗑️ Xóa
+                </button>
+              </td>
             </tr>
           {% endfor %}
         </tbody>
@@ -48,4 +60,56 @@
       </div>
     {% endif %}
   </div>
+
+  <!-- POPUP XÁC NHẬN XÓA (MODAL) -->
+  <div id="delete-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.5); z-index: 9999; align-items: center; justify-content: center;">
+    <div style="background: #fff; border-radius: 10px; padding: 1.8rem; width: 90%; max-width: 380px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.2); animation: fadeIn 0.2s ease;">
+      <h3 style="margin-top: 0; margin-bottom: 0.8rem; font-size: 1.15rem; color: #222;">Xác nhận xóa bài làm</h3>
+      <p id="delete-modal-msg" style="font-size: 0.95rem; color: #444; margin-bottom: 1.5rem; line-height: 1.4;">
+        Bạn có chắc chắn muốn xóa lượt làm bài này không?
+      </p>
+      
+      <form id="delete-form" method="POST" action="">
+        <div style="display: flex; gap: 0.8rem; justify-content: center;">
+          <button type="button" onclick="closeDeleteModal()" style="flex: 1; padding: 0.65rem; border: 1px solid #ccc; background: #f5f5f5; color: #333; border-radius: 6px; font-weight: 600; cursor: pointer;">
+            Hủy
+          </button>
+          <button type="submit" style="flex: 1; padding: 0.65rem; border: none; background: #dc3545; color: #fff; border-radius: 6px; font-weight: 600; cursor: pointer;">
+            Đồng ý xóa
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <style>
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+  </style>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      var deleteButtons = document.querySelectorAll('.btn-delete-sub');
+      var modal = document.getElementById('delete-modal');
+      var form = document.getElementById('delete-form');
+      var msg = document.getElementById('delete-modal-msg');
+
+      deleteButtons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var actionUrl = this.getAttribute('data-url');
+          var studentName = this.getAttribute('data-name');
+
+          form.action = actionUrl;
+          msg.innerHTML = "Bạn có chắc chắn muốn xóa lịch sử làm bài của học sinh <strong>" + studentName + "</strong> không?";
+          modal.style.display = 'flex';
+        });
+      });
+    });
+
+    function closeDeleteModal() {
+      document.getElementById('delete-modal').style.display = 'none';
+    }
+  </script>
 {% endblock %}
