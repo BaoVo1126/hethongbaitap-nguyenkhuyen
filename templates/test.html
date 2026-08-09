@@ -261,6 +261,20 @@
   var timerInterval = null;
   var isSubmitting = false;
 
+  function autoSubmitExam(reasonMessage) {
+    if (isSubmitting) return;
+    isSubmitting = true;
+    
+    if (timerInterval) clearInterval(timerInterval);
+    
+    if (reasonMessage) {
+      alert(reasonMessage);
+    }
+    
+    // Tự động nộp form bài làm
+    document.getElementById('exam-form').submit();
+  }
+
   function startTimer() {
     if (totalSeconds <= 0) return;
 
@@ -268,12 +282,7 @@
     
     timerInterval = setInterval(function() {
       if (totalSeconds <= 0) {
-        clearInterval(timerInterval);
-        if (!isSubmitting) {
-          isSubmitting = true;
-          alert('⏰ Đã hết thời gian làm bài! Hệ thống sẽ tự động nộp bài của bạn.');
-          document.getElementById('exam-form').submit();
-        }
+        autoSubmitExam('⏰ Đã hết thời gian làm bài! Hệ thống sẽ tự động nộp bài của bạn.');
         return;
       }
 
@@ -290,10 +299,8 @@
 
   function confirmSubmit() {
     if (isSubmitting) return;
-    if (confirm('Bạn có chắc chắn muốn nộp bài thi này không?')) {
-      isSubmitting = true;
-      if (timerInterval) clearInterval(timerInterval);
-      document.getElementById('exam-form').submit();
+    if (confirm('Bạn có chắc chắn muốn nộp bài thi này không?\n\n(Lưu ý: Thoát bài làm là nộp bài)')) {
+      autoSubmitExam();
     }
   }
 
@@ -303,6 +310,24 @@
       card.style.borderColor = "#cbd5e0";
     }
   }
+
+  // --- BỘ GIÁM SÁT CHỐNG CHUYỂN TAB & THOÁT TRANG ---
+
+  // 1. Cảnh báo khi người dùng tắt/tải lại trang (BeforeUnload)
+  window.addEventListener('beforeunload', function (e) {
+    if (!isSubmitting) {
+      var confirmationMessage = 'Bạn có muốn thoát khỏi bài làm không?\n\nChú ý: Thoát bài làm là nộp bài!';
+      (e || window.event).returnValue = confirmationMessage;
+      return confirmationMessage;
+    }
+  });
+
+  // 2. Phát hiện hành vi chuyển sang Tab khác hoặc thu nhỏ trình duyệt (VisibilityChange)
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden && !isSubmitting) {
+      autoSubmitExam('⚠️ Bạn đã rời khỏi tab/màn hình làm bài!\n\nChú ý: Thoát bài làm là nộp bài. Hệ thống đã tự động ghi nhận và nộp bài làm của bạn.');
+    }
+  });
 
   // Khởi động đếm ngược khi trang đã tải đầy đủ nội dung
   window.addEventListener('DOMContentLoaded', function() {
