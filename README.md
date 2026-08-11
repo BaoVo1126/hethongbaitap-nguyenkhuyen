@@ -1,4 +1,4 @@
-# 🚀 SmartQuiz AI — Dynamic Exam & Practice Platform (Hệ thống trung tâm luyện thi CLC Nguyễn Khuyến) (Updating)
+# 🚀 SmartQuiz AI — Dynamic Exam & Practice Platform (Hệ thống trung tâm luyện thi CLC Nguyễn Khuyến) (In progress)
 
 > **Nền tảng quản lý & tạo đề thi tự động bằng Flask, hỗ trợ bóc tách đề từ nhiều định dạng file (PDF/DOCX/OCR) và xáo trộn đề theo mã số học sinh.**
 
