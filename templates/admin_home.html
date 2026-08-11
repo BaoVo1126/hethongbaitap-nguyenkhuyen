@@ -17,18 +17,24 @@
     </div>
   {% endif %}
 
-  <form class="card-form" method="POST" action="{{ url_for('admin_upload') }}" enctype="multipart/form-data">
+  <!-- FORM TẢI LÊN ĐỀ THI -->
+  <form class="card-form" method="POST" action="{% if show_create_mcq %}{{ url_for('admin_home') }}{% else %}{{ url_for('admin_upload') }}{% endif %}" enctype="multipart/form-data">
     <label>Tên đề</label>
     <input type="text" name="title" required placeholder="Kiểm tra 15 phút - Chương Este">
 
     <label>Môn học</label>
     <input type="text" name="subject" placeholder="Hóa 12">
 
-    <label>Tệp đề thi (PDF hoặc Ảnh)</label>
-    <input type="file" name="exam_image" accept="image/*,.pdf" required>
-    <div class="hint">Hệ thống sẽ tự động bóc tách text từ PDF/Ảnh, tự nhận diện các câu hỏi (kể cả dạng 23.1, 23.2,...) và trích xuất 4 đáp án. Bạn có thể xem lại và chỉnh sửa trước khi đăng.</div>
+    {% if show_create_mcq %}
+      <label>Nội dung văn bản thô (Coppy/Dán trực tiếp câu hỏi vào đây)</label>
+      <textarea name="raw_text" rows="8" placeholder="Câu 1. Nội dung...&#10;A. Đáp án A&#10;B. Đáp án B..."></textarea>
+    {% endif %}
 
-    <!-- BỔ SUNG: KHỐI CHỌN NGÀY VÀ THỜI GIAN LÀM BÀI TRÊN CÙNG HÀNG -->
+    <label>Tệp đề thi (PDF, Word, TXT hoặc Ảnh) {% if show_create_mcq %}(Không bắt buộc nếu đã dán nội dung ở trên){% endif %}</label>
+    <input type="file" name="{% if show_create_mcq %}file{% else %}exam_image{% endif %}" accept="image/*,.pdf,.docx,.pptx,.txt" {% if not show_create_mcq %}required{% endif %}>
+    <div class="hint">Hệ thống sẽ tự động bóc tách text từ File/Ảnh, tự nhận diện các câu hỏi (kể cả dạng 23.1, 23.2,...) và trích xuất 4 đáp án. Bạn có thể xem lại và chỉnh sửa trước khi đăng.</div>
+
+    <!-- KHỐI CHỌN NGÀY VÀ THỜI GIAN LÀM BÀI TRÊN CÙNG HÀNG -->
     <div style="display: flex; gap: 1rem; margin-top: 0.8rem;">
       <div style="flex: 1;">
         <label>Ngày mở bài (không bắt buộc)</label>
@@ -56,7 +62,14 @@
             {% if e['available_date'] %}<span class="meta">&middot; mở {{ e['available_date'] }}</span>{% endif %}
             {% if e['time_limit_minutes'] %}<span class="meta">&middot; {{ e['time_limit_minutes'] }} phút</span>{% endif %}
           </div>
-          <div class="meta">{{ exam_stats[e['id']]['n_questions'] }} câu &middot; {{ exam_stats[e['id']]['n_submissions'] }} lượt nộp (điểm danh)</div>
+          
+          <div class="meta">
+            {% if exam_stats and e['id'] in exam_stats %}
+              {{ exam_stats[e['id']]['n_questions'] }} câu &middot; {{ exam_stats[e['id']]['n_submissions'] }} lượt nộp (điểm danh)
+            {% else %}
+              0 câu &middot; 0 lượt nộp
+            {% endif %}
+          </div>
           
           <a class="btn small secondary" href="{{ url_for('admin_edit_exam', exam_id=e['id']) }}">Xem/Sửa</a>
           <a class="btn small secondary" href="{{ url_for('admin_exam_submissions', exam_id=e['id']) }}">Điểm danh</a>
@@ -71,7 +84,7 @@
             </form>
           {% endif %}
 
-          <!-- FORM NÚT XÓA ĐỀ THI MỚI THÊM -->
+          <!-- FORM NÚT XÓA ĐỀ THI -->
           <form method="POST" action="{{ url_for('admin_delete_exam', exam_id=e['id']) }}" style="display:inline;" onsubmit="return confirm('Bạn có chắc chắn muốn xóa hẳn đề thi này không? Hành động này không thể hoàn tác!');">
             <button class="btn small danger" type="submit" style="background-color: #dc3545; color: white;">Xóa</button>
           </form>
