@@ -14,66 +14,9 @@
       font-family: 'Inter', system-ui, -apple-system, sans-serif;
     }
 
-    /* --- CSS Cho Splash Screen (Nền đỏ, Chữ trắng) --- */
-    #splash-screen {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background-color: #dc2626;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        z-index: 999999;
-        transition: opacity 0.5s ease, visibility 0.5s ease;
-    }
-
-    #splash-screen.fade-out {
-        opacity: 0;
-        visibility: hidden;
-    }
-
-    .splash-content {
-        text-align: center;
-        animation: pulseZoom 1.5s infinite alternate ease-in-out;
-    }
-
-    .splash-logo {
-        width: 80px;
-        height: 80px;
-        background: #ffffff;
-        color: #dc2626;
-        border-radius: 20px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 2.2rem;
-        font-weight: 800;
-        margin: 0 auto 15px auto;
-        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
-    }
-
-    .splash-title {
-        font-size: 1.5rem;
-        font-weight: 800;
-        color: #ffffff;
-        letter-spacing: -0.3px;
-    }
-
-    @keyframes pulseZoom {
-        0% {
-            transform: scale(0.95);
-            opacity: 0.85;
-        }
-        100% {
-            transform: scale(1.05);
-            opacity: 1;
-        }
-    }
-    /* ----------------------------- */
-
+    /* =========================================================
+       TOPBAR PHONG CÁCH AZOTA REDESIGN
+       ========================================================= */
     .topbar {
       background: linear-gradient(135deg, #b91c1c 0%, #dc2626 50%, #ef4444 100%) !important;
       color: #ffffff;
@@ -94,7 +37,7 @@
       gap: 12px;
     }
 
-    /* Khối Brand bọc Logo + Tên (Click về trang chủ & Hiệu ứng Hover Phóng to) */
+    /* CHỈNH SỬA: Khối Brand bọc Logo + Tên (Click về trang chủ & Hiệu ứng Hover Phóng to) */
     .brand-link {
       display: flex;
       align-items: center;
@@ -205,7 +148,7 @@
       .app-shell .sidebar {
         position: fixed;
         top: 0;
-        left: -260px;
+        left: -260px; /* Mặc định ẩn sang bên trái */
         width: 250px;
         height: 100vh;
         z-index: 100;
@@ -215,11 +158,11 @@
       }
 
       .app-shell .sidebar.open {
-        left: 0;
+        left: 0; /* Hiện ra khi mở */
       }
 
       .sidebar-overlay.active {
-        display: block;
+        display: block; /* Hiện lớp phủ khi mở menu trên điện thoại */
       }
 
       .topbar {
@@ -323,26 +266,51 @@
 </head>
 <body>
 
-  <!-- MÀN HÌNH CHỜ (SPLASH SCREEN) -->
+  <!-- Khối Splash Screen Giao diện mở đầu -->
   <div id="splash-screen">
     <div class="splash-content">
-      <div class="splash-logo">{{ center_name[:1] }}</div>
-      <div class="splash-title">{{ center_name }}</div>
+      <h1 class="splash-title">{{ center_name }}</h1>
+      <p class="splash-subtitle">Hệ thống Luyện tập & Kiểm tra Trực tuyến</p>
     </div>
   </div>
+
+  <script>
+    // Kiểm tra xem đã hiển thị Splash Screen trong session hiện tại chưa
+    if (sessionStorage.getItem('splashShown')) {
+      var splash = document.getElementById('splash-screen');
+      if (splash) {
+        splash.style.display = 'none'; // Đã vào rồi thì ẩn ngay khi chuyển tab
+      }
+    } else {
+      // Lần đầu vào trang: giữ 2s rồi mờ dần và ẩn hẳn
+      window.addEventListener('DOMContentLoaded', function() {
+        setTimeout(function() {
+          var splash = document.getElementById('splash-screen');
+          if (splash) {
+            splash.classList.add('fade-out');
+            setTimeout(function() {
+              splash.style.display = 'none';
+            }, 500); // Đợi kết thúc hiệu ứng transition fade-out
+          }
+          sessionStorage.setItem('splashShown', 'true');
+        }, 2000); // Hiện đúng 2 giây
+      });
+    }
+  </script>
 
   <div class="topbar">
     <div class="topbar-brand-zone">
       <!-- Nút Toggle Sidebar (Menu ☰) dành riêng cho Điện thoại -->
       <button class="btn-toggle-sidebar" id="btn-toggle-sidebar" title="Mở danh mục">☰</button>
 
-      <!-- Khối Logo + Chữ gom chung thành đường dẫn chuyển về trang chủ -->
+      <!-- CHỈNH SỬA: Khối Logo + Chữ gom chung thành đường dẫn chuyển về trang chủ -->
       <a href="{{ url_for('home') }}" class="brand-link" title="Về trang chủ">
         <div class="brand-mark">{{ center_name[:1] }}</div>
         <h1>{{ center_name }}</h1>
       </a>
     </div>
 
+    <!-- Dùng data-target-url giúp tránh lỗi xung đột dấu nháy trên VS Code -->
     <a class="teacher-link" 
        id="btn-teacher-auth"
        href="#" 
@@ -363,6 +331,7 @@
         <span class="sidebar-icon">&#128196;</span> Tài liệu
       </a>
 
+      <!-- ẨN TAB THÔNG TIN ĐỐI VỚI HỌC SINH (CHỈ HIỂN THỊ KHI TRONG TRANG ADMIN HOẶC TRUY CẬP MỤC THÔNG TIN) -->
       {% if request.path.startswith('/admin') or active == 'thongtin' %}
         <a class="sidebar-item {{ 'active' if active == 'thongtin' else '' }}" href="{{ url_for('info_page') }}">
           <span class="sidebar-icon">&#8505;</span> Thông tin
@@ -387,6 +356,7 @@
       <p>Vui lòng nhập mật khẩu</p>
       
       <form id="teacher-auth-form" method="POST" action="{{ url_for('verify_teacher_pass') }}">
+        <!-- Ô nhập mật khẩu hiển thị các dấu chấm đen -->
         <input type="password" 
                id="teacher-password-input"
                name="teacher_password" 
@@ -410,22 +380,6 @@
 
   <script>
     document.addEventListener('DOMContentLoaded', function() {
-      // 0. Xử lý Splash Screen chỉ hiển thị 1 lần duy nhất trong phiên làm việc
-      const splashScreen = document.getElementById("splash-screen");
-      
-      if (!sessionStorage.getItem('hasSeenSplash')) {
-          sessionStorage.setItem('hasSeenSplash', 'true');
-          setTimeout(function() {
-              splashScreen.classList.add("fade-out");
-              setTimeout(function() {
-                  splashScreen.style.display = "none";
-              }, 500);
-            }, 2500);
-      } else {
-          // Đã xem rồi thì ẩn ngay lập tức khi chuyển tab, không lặp lại animation
-          splashScreen.style.display = "none";
-      }
-
       // 1. Quản lý Đóng/Mở Sidebar trên Điện thoại
       var toggleBtn = document.getElementById('btn-toggle-sidebar');
       var sidebar = document.getElementById('app-sidebar');
