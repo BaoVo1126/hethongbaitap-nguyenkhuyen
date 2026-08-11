@@ -14,7 +14,7 @@
       font-family: 'Inter', system-ui, -apple-system, sans-serif;
     }
 
-    /* --- CSS Cho Splash Screen --- */
+    /* --- CSS Cho Splash Screen (Nền đỏ, Chữ trắng) --- */
     #splash-screen {
         position: fixed;
         top: 0;
@@ -94,7 +94,7 @@
       gap: 12px;
     }
 
-    /* CHỈNH SỬA: Khối Brand bọc Logo + Tên (Click về trang chủ & Hiệu ứng Hover Phóng to) */
+    /* Khối Brand bọc Logo + Tên (Click về trang chủ & Hiệu ứng Hover Phóng to) */
     .brand-link {
       display: flex;
       align-items: center;
@@ -205,7 +205,7 @@
       .app-shell .sidebar {
         position: fixed;
         top: 0;
-        left: -260px; /* Mặc định ẩn sang bên trái */
+        left: -260px;
         width: 250px;
         height: 100vh;
         z-index: 100;
@@ -215,11 +215,11 @@
       }
 
       .app-shell .sidebar.open {
-        left: 0; /* Hiện ra khi mở */
+        left: 0;
       }
 
       .sidebar-overlay.active {
-        display: block; /* Hiện lớp phủ khi mở menu trên điện thoại */
+        display: block;
       }
 
       .topbar {
@@ -336,14 +336,13 @@
       <!-- Nút Toggle Sidebar (Menu ☰) dành riêng cho Điện thoại -->
       <button class="btn-toggle-sidebar" id="btn-toggle-sidebar" title="Mở danh mục">☰</button>
 
-      <!-- CHỈNH SỬA: Khối Logo + Chữ gom chung thành đường dẫn chuyển về trang chủ -->
+      <!-- Khối Logo + Chữ gom chung thành đường dẫn chuyển về trang chủ -->
       <a href="{{ url_for('home') }}" class="brand-link" title="Về trang chủ">
         <div class="brand-mark">{{ center_name[:1] }}</div>
         <h1>{{ center_name }}</h1>
       </a>
     </div>
 
-    <!-- Dùng data-target-url giúp tránh lỗi xung đột dấu nháy trên VS Code -->
     <a class="teacher-link" 
        id="btn-teacher-auth"
        href="#" 
@@ -364,7 +363,6 @@
         <span class="sidebar-icon">&#128196;</span> Tài liệu
       </a>
 
-      <!-- ẨN TAB THÔNG TIN ĐỐI VỚI HỌC SINH (CHỈ HIỂN THỊ KHI TRONG TRANG ADMIN HOẶC TRUY CẬP MỤC THÔNG TIN) -->
       {% if request.path.startswith('/admin') or active == 'thongtin' %}
         <a class="sidebar-item {{ 'active' if active == 'thongtin' else '' }}" href="{{ url_for('info_page') }}">
           <span class="sidebar-icon">&#8505;</span> Thông tin
@@ -389,7 +387,6 @@
       <p>Vui lòng nhập mật khẩu</p>
       
       <form id="teacher-auth-form" method="POST" action="{{ url_for('verify_teacher_pass') }}">
-        <!-- Ô nhập mật khẩu hiển thị các dấu chấm đen -->
         <input type="password" 
                id="teacher-password-input"
                name="teacher_password" 
@@ -413,14 +410,21 @@
 
   <script>
     document.addEventListener('DOMContentLoaded', function() {
-      // 0. Xử lý thời gian hiển thị Splash Screen (2.5 giây)
+      // 0. Xử lý Splash Screen chỉ hiển thị 1 lần duy nhất trong phiên làm việc
       const splashScreen = document.getElementById("splash-screen");
-      setTimeout(function() {
-          splashScreen.classList.add("fade-out");
+      
+      if (!sessionStorage.getItem('hasSeenSplash')) {
+          sessionStorage.setItem('hasSeenSplash', 'true');
           setTimeout(function() {
-              splashScreen.style.display = "none";
-          }, 500);
-      }, 2500);
+              splashScreen.classList.add("fade-out");
+              setTimeout(function() {
+                  splashScreen.style.display = "none";
+              }, 500);
+            }, 2500);
+      } else {
+          // Đã xem rồi thì ẩn ngay lập tức khi chuyển tab, không lặp lại animation
+          splashScreen.style.display = "none";
+      }
 
       // 1. Quản lý Đóng/Mở Sidebar trên Điện thoại
       var toggleBtn = document.getElementById('btn-toggle-sidebar');
