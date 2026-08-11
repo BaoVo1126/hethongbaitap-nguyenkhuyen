@@ -6,6 +6,7 @@
 [![Flask](https://img.shields.io/badge/Framework-Flask-000000?style=flat&logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
 [![Demo](https://img.shields.io/badge/Live-Demo-brightgreen?style=flat&logo=render)](https://he-thong-bai-tap-smartquizai.onrender.com/)
 
+- **🌐 Live Demo**: https://he-thong-bai-tap-smartquizai.onrender.com/
 ---
 
 ## 📌 Mục đích dự án (Summary)
@@ -48,4 +49,4 @@ python app.py
 
 - **🛠️ Quản trị / Giáo viên** : http://127.0.0.1:5000/admin
 
-- **🌐 Live Demo**: https://he-thong-bai-tap-smartquizai.onrender.com/
+
