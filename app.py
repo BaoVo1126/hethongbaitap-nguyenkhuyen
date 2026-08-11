@@ -4,10 +4,17 @@ import json
 import sqlite3
 import random
 import hashlib
+import subprocess
 from datetime import datetime, date
 import requests 
 from flask import Flask, g, render_template, request, redirect, url_for, flash, abort, send_from_directory
 from werkzeug.utils import secure_filename
+
+try:
+    import openpyxl
+    OPENPYXL_AVAILABLE = True
+except ImportError:
+    OPENPYXL_AVAILABLE = False
 
 os.environ["FLAGS_use_mkldnn"] = "0"
 os.environ["FLAGS_enable_pir_api"] = "0"
@@ -55,8 +62,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "center.db")
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 DOCS_DIR = os.path.join(UPLOAD_DIR, "documents")
+CONVERTED_DIR = os.path.join(UPLOAD_DIR, "_converted")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(DOCS_DIR, exist_ok=True)
+os.makedirs(CONVERTED_DIR, exist_ok=True)
 
 CENTER_NAME = "Trung Tâm Nguyễn Khuyến"
 CENTER_INFO = {
@@ -218,6 +227,76 @@ def _read_pptx(file_path: str) -> str:
     return "\n".join(parts)
 
 
+def _read_xlsx(file_path: str) -> str:
+    """Đọc thô toàn bộ nội dung 1 file Excel (mọi sheet), mỗi hàng nối các ô
+    lại bằng ' | ' — chỉ dùng để hiển thị 'văn bản gốc trích xuất' cho giáo
+    viên đối chiếu, KHÔNG dùng để tách câu hỏi (việc đó dùng
+    _extract_questions_from_xlsx, đọc trực tiếp từng ô để khỏi đoán bố cục)."""
+    if not OPENPYXL_AVAILABLE:
+        return ""
+    try:
+        wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
+    except Exception:
+        return ""
+    parts = []
+    for ws in wb.worksheets:
+        for row in ws.iter_rows(values_only=True):
+            cells = [str(c).strip() for c in row if c is not None and str(c).strip()]
+            if cells:
+                parts.append(" | ".join(cells))
+    return "\n".join(parts)
+
+
+LIBREOFFICE_BIN = None
+for _candidate in ("libreoffice", "soffice"):
+    from shutil import which as _which
+    if _which(_candidate):
+        LIBREOFFICE_BIN = _candidate
+        break
+
+
+def _convert_office_to_pdf(file_path: str):
+    """Dùng LibreOffice (đã cài sẵn) chuyển thật .docx/.doc/.pptx/.ppt về PDF,
+    rồi tái sử dụng đúng bộ đọc bố cục PDF đã kiểm chứng (_extract_questions_from_pdf_layout)
+    cho MỌI định dạng — đây là cách "đưa mọi file về 1 định dạng gốc" theo đúng
+    yêu cầu: chỉ cần bảo trì 1 bộ máy tách câu hỏi duy nhất (bộ máy cho PDF),
+    thay vì nhiều bộ đọc riêng lẻ cho từng định dạng dễ lệch kết quả với nhau.
+    Trả về đường dẫn PDF nếu chuyển thành công, None nếu không có LibreOffice
+    hoặc quá trình chuyển đổi thất bại (khi đó nơi gọi sẽ tự chuyển sang cách
+    đọc dự phòng cho từng định dạng)."""
+    if not LIBREOFFICE_BIN:
+        return None
+    try:
+        result = subprocess.run(
+            [LIBREOFFICE_BIN, "--headless", "--norestore", "--convert-to", "pdf",
+             "--outdir", CONVERTED_DIR, file_path],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode != 0:
+            print(f"[LibreOffice Warning] {result.stderr}")
+            return None
+    except Exception as e:
+        print(f"[LibreOffice Warning] {e}")
+        return None
+
+    base = os.path.splitext(os.path.basename(file_path))[0]
+    candidate = os.path.join(CONVERTED_DIR, base + ".pdf")
+    return candidate if os.path.exists(candidate) else None
+
+
+def _looks_like_broken_font_rendering(text: str) -> bool:
+    """LibreOffice thỉnh thoảng render PDF bằng font thay thế thiếu bảng chữ
+    tiếng Việt, khiến dấu thanh tách rời thành từng dòng riêng lẻ (VD: 'ứ',
+    'ổ', 'ạ' đứng một mình 1 dòng) thay vì dính liền vào chữ cái. Phát hiện
+    trường hợp này để bỏ kết quả PDF vừa convert và dùng lại văn bản đọc
+    trực tiếp từ file gốc (luôn đúng vì không qua khâu render font)."""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if len(lines) < 8:
+        return False
+    lone_marks = sum(1 for ln in lines if len(ln) == 1 and not ln.isascii())
+    return lone_marks >= 5 and (lone_marks / len(lines)) > 0.08
+
+
 def _ocr_image_paddle(image) -> str:
     if not PADDLE_AVAILABLE or _ocr is None:
         return ""
@@ -290,6 +369,9 @@ def extract_text_from_file(file_path: str) -> str:
 
     if ext == ".pptx":
         return _read_pptx(file_path)
+
+    if ext in {".xlsx", ".xls"}:
+        return _read_xlsx(file_path)
 
     if ext == ".pdf" and PDF_AVAILABLE:
         doc = fitz.open(file_path)
@@ -389,28 +471,16 @@ def _parse_option_lines(text: str):
     return options
 
 
-def _extract_questions_from_pdf_layout(file_path: str):
-    if not PDF_AVAILABLE:
-        return []
-
-    doc = fitz.open(file_path)
-
-    # Đọc hết mọi block của mọi trang trước (thay vì xử lý xong-trang-nào-bỏ-
-    # trang-đó), để một câu hỏi bị ngắt giữa 2 trang (thân câu ở cuối trang
-    # này, đáp án ở đầu trang sau) vẫn được ghép liền mạch bên dưới.
-    # LƯU Ý: không dùng kiểu "block lặp lại ở >=2 trang thì coi là boilerplate"
-    # — nhiều đề trắc nghiệm có các bộ đáp án giống hệt nhau ở nhiều câu khác
-    # nhau (VD: "A but-1-ene B but-2-ene C but-1-yne D but-2-yne" lặp lại cho
-    # 2 câu hỏi khác nội dung), nên cách đó sẽ xóa nhầm đáp án thật.
-    all_pages_blocks = []
-    for page in doc:
-        blocks = page.get_text("blocks", sort=True)
-        page_blocks = [(block[4] or "", _join_wrapped_lines(block[4] or "")) for block in blocks]
-        all_pages_blocks.append(page_blocks)
-
-    def is_boilerplate(cleaned: str) -> bool:
-        return _looks_like_header_or_footer(cleaned)
-
+def _extract_questions_from_blocks(pages_of_blocks):
+    """LÕI DÙNG CHUNG cho mọi định dạng file: nhận vào danh sách các 'trang',
+    mỗi trang là 1 danh sách các khối văn bản thô (block) theo đúng thứ tự
+    đọc, rồi trả về danh sách câu hỏi trắc nghiệm đã tách A/B/C/D. Đây là bộ
+    máy duy nhất xử lý việc nhận diện số câu, gom câu bị ngắt trang, và tách
+    đáp án — PDF, Word, PowerPoint, Excel, TXT đều gọi chung hàm này sau khi
+    được quy về cùng 1 dạng "danh sách block theo trang", nên mọi cải tiến
+    (lọc tiêu đề/chân trang, nối từ bị ngắt dòng, v.v.) tự động áp dụng cho
+    tất cả định dạng, không phải sửa riêng từng nơi.
+    """
     questions = []
     current = None
 
@@ -443,13 +513,14 @@ def _extract_questions_from_pdf_layout(file_path: str):
 
         current = None
 
-    for page_number, page_blocks in enumerate(all_pages_blocks, start=1):
-        for text, cleaned in page_blocks:
+    for page_number, page_blocks in enumerate(pages_of_blocks, start=1):
+        for text in page_blocks:
+            cleaned = _join_wrapped_lines(text)
             lines = text.splitlines()
             if not lines:
                 continue
 
-            if is_boilerplate(cleaned):
+            if _looks_like_header_or_footer(cleaned):
                 continue
 
             # Cho phép khớp cả dạng số thứ tự chuẩn (VD: 19.1 hoặc 1)
@@ -464,11 +535,45 @@ def _extract_questions_from_pdf_layout(file_path: str):
                 }
                 continue
 
-            if current is not None:
+            if current is None:
+                continue
+
+            # Một block chỉ thực sự là "khối đáp án" nếu có ít nhất 1 dòng bắt
+            # đầu bằng chữ cái A/B/C/D hợp lệ, HOẶC ta đã bắt đầu gom đáp án
+            # trước đó rồi (dòng tiếp theo của 1 đáp án dài bị wrap). Nếu chưa
+            # gặp đáp án nào và block này cũng không có, đây vẫn là phần thân
+            # câu hỏi bị tách sang block riêng (VD: "...nhiệt độ sôi" rồi "là:"
+            # xuống 1 block khác) — phải nối vào question_text, không được bỏ
+            # qua, nếu không phần đuôi câu hỏi sẽ bị mất.
+            has_option_marker = any(_OPTION_START_RE.match(_clean_extracted_line(ln)) for ln in lines)
+            if not current["option_blocks"] and not has_option_marker:
+                current["question_text"].extend(lines)
+            else:
                 current["option_blocks"].append(text)
 
     flush_current()
     return questions
+
+
+def _extract_questions_from_pdf_layout(file_path: str):
+    if not PDF_AVAILABLE:
+        return []
+
+    doc = fitz.open(file_path)
+
+    # Đọc hết mọi block của mọi trang trước (thay vì xử lý xong-trang-nào-bỏ-
+    # trang-đó), để một câu hỏi bị ngắt giữa 2 trang (thân câu ở cuối trang
+    # này, đáp án ở đầu trang sau) vẫn được ghép liền mạch bên dưới.
+    # LƯU Ý: không dùng kiểu "block lặp lại ở >=2 trang thì coi là boilerplate"
+    # — nhiều đề trắc nghiệm có các bộ đáp án giống hệt nhau ở nhiều câu khác
+    # nhau (VD: "A but-1-ene B but-2-ene C but-1-yne D but-2-yne" lặp lại cho
+    # 2 câu hỏi khác nội dung), nên cách đó sẽ xóa nhầm đáp án thật.
+    pages_of_blocks = []
+    for page in doc:
+        blocks = page.get_text("blocks", sort=True)
+        pages_of_blocks.append([block[4] or "" for block in blocks])
+
+    return _extract_questions_from_blocks(pages_of_blocks)
 
 
 def _looks_like_header_or_footer(text: str) -> bool:
@@ -579,19 +684,157 @@ def _detect_answer_key(raw_text: str):
     return answers
 
 
-def parse_questions_pipeline(raw_text: str, file_path: str = None):
-    if not raw_text or not raw_text.strip():
+def _extract_questions_from_xlsx(file_path: str):
+    """Đọc câu hỏi/đáp án trực tiếp từ các ô Excel — không qua render/convert
+    gì cả, nên không có rủi ro sai layout như PDF. Hỗ trợ 2 kiểu bảng hay gặp:
+
+    1) Dạng bảng cột: mỗi hàng là 1 câu — cột 1 = nội dung câu hỏi, 4 cột kế
+       = đáp án A/B/C/D, cột thứ 6 (nếu có) = đáp án đúng (ghi sẵn chữ A/B/C/D).
+       Số thứ tự câu được đánh tự động theo thứ tự hàng nếu cột 1 chưa có số.
+    2) Dạng văn bản tự do dán vào 1 cột (giống hệt 1 trang tài liệu): mỗi ô là
+       1 dòng, được gom lại rồi đưa qua đúng lõi tách câu hỏi dùng chung
+       (_extract_questions_from_blocks) như mọi định dạng khác.
+    """
+    if not OPENPYXL_AVAILABLE:
+        return []
+    try:
+        wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
+    except Exception:
         return []
 
     questions = []
-    if file_path and os.path.splitext(file_path)[1].lower() == ".pdf" and PDF_AVAILABLE:
-        questions = _extract_questions_from_pdf_layout(file_path)
+    free_text_blocks = []
+    auto_number = 0
 
-    if not questions:
+    for ws in wb.worksheets:
+        for row in ws.iter_rows(values_only=True):
+            cells = [str(c).strip() if c is not None else "" for c in row]
+            non_empty = [c for c in cells if c]
+            if not non_empty:
+                continue
+
+            # Bỏ qua hàng tiêu đề kiểu "Câu hỏi | A | B | C | D | Đáp án"
+            first_lower = non_empty[0].lower()
+            if first_lower in {"câu hỏi", "cau hoi", "question", "stt", "số", "so", "câu", "no."}:
+                continue
+            if len(cells) >= 5 and all(
+                (cells[i] or "").strip().lower() == letter
+                for i, letter in enumerate(("a", "b", "c", "d"), start=1)
+            ):
+                continue
+
+            # Dạng bảng cột: có đủ câu hỏi + 4 đáp án ở 5 ô đầu (cho phép ô
+            # trống ở giữa lệch cột 1 chút nhưng về cơ bản đúng thứ tự)
+            filled = [c for c in cells[:6] if c]
+            if len(cells) >= 5 and cells[0] and cells[1] and cells[2] and cells[3] and cells[4]:
+                auto_number += 1
+                m = re.match(r"^\s*(\d+(?:\.\d+)?)\.\s*(.*)$", cells[0])
+                if m:
+                    q_number, q_text = m.group(1), m.group(2)
+                else:
+                    q_number, q_text = str(auto_number), cells[0]
+
+                correct = None
+                if len(cells) >= 6 and cells[5]:
+                    letter_match = re.match(r"^\s*([ABCDabcd])\b", cells[5])
+                    if letter_match:
+                        correct = letter_match.group(1).upper()
+
+                questions.append({
+                    "question_text": f"{q_number}. {q_text}",
+                    "option_a": cells[1],
+                    "option_b": cells[2],
+                    "option_c": cells[3],
+                    "option_d": cells[4],
+                    "correct_answer": correct,
+                    "source_page": ws.title,
+                })
+            else:
+                # Không đúng hình dạng bảng cột -> gom vào văn bản tự do,
+                # mỗi ô có nội dung thành 1 dòng riêng
+                free_text_blocks.extend(non_empty)
+
+    if questions:
+        return questions
+
+    if free_text_blocks:
+        return _extract_questions_from_blocks([free_text_blocks])
+
+    return []
+
+
+def extract_questions_universal(file_path: str):
+    """HÀM PIPELINE DUY NHẤT xử lý câu hỏi/đáp án cho MỌI định dạng file đề
+    thi: .pdf, .docx/.doc, .pptx/.ppt, .xlsx/.xls, .txt, và ảnh chụp.
+
+    Ý tưởng: thay vì duy trì nhiều bộ tách câu hỏi khác nhau (mỗi định dạng 1
+    kiểu, dễ lệch kết quả), MỌI định dạng được quy về cùng 1 dạng cơ sở rồi
+    chạy qua ĐÚNG MỘT bộ máy tách câu hỏi đã kiểm chứng kỹ (dùng cho PDF ở
+    trên):
+      - Word / PowerPoint: chuyển THẬT sang PDF bằng LibreOffice (giữ đúng bố
+        cục hiển thị — cột, canh lề, ngắt dòng...) rồi đọc như 1 file PDF.
+      - Excel: đọc trực tiếp từng ô (đáng tin hơn convert sang PDF vì bảng
+        tính dễ vỡ layout khi render).
+      - TXT: mỗi dòng không rỗng được coi là 1 "khối" rồi đưa thẳng vào lõi
+        tách câu hỏi dùng chung, y hệt cách PDF/Word xử lý từng khối.
+      - Ảnh chụp: vẫn phải OCR ra chữ trước (không có bố cục đáng tin để tách
+        theo khối), sau đó dùng bộ phân tích văn bản tổng quát.
+
+    Nếu một nhánh xử lý thất bại hoặc không tách được câu nào, hàm sẽ tự động
+    lùi về cách đọc dự phòng an toàn hơn cho định dạng đó — không bao giờ để
+    trống hoàn toàn nếu vẫn còn cách khác để thử.
+    """
+    ext = os.path.splitext(file_path)[1].lower()
+
+    if ext == ".pdf":
+        return _extract_questions_from_pdf_layout(file_path) if PDF_AVAILABLE else []
+
+    if ext in {".docx", ".doc", ".pptx", ".ppt"}:
+        pdf_path = _convert_office_to_pdf(file_path)
+        if pdf_path and PDF_AVAILABLE:
+            doc_pdf_text = "\n".join(
+                p.get_text("text", sort=True) for p in fitz.open(pdf_path)
+            )
+            if not _looks_like_broken_font_rendering(doc_pdf_text):
+                questions = _extract_questions_from_pdf_layout(pdf_path)
+                if questions:
+                    return questions
+        # Dự phòng: đọc trực tiếp văn bản từ file gốc (luôn đúng ký tự vì
+        # không qua khâu render font) rồi dùng bộ phân tích tổng quát
+        raw = _read_docx(file_path) if ext in (".docx", ".doc") else _read_pptx(file_path)
+        return _parse_questions_from_text_generic(raw) if raw else []
+
+    if ext in {".xlsx", ".xls"}:
+        return _extract_questions_from_xlsx(file_path)
+
+    if ext == ".txt":
+        raw = _read_txt(file_path)
+        lines = [ln for ln in raw.splitlines() if ln.strip()]
+        questions = _extract_questions_from_blocks([lines]) if lines else []
+        if questions:
+            return questions
+        return _parse_questions_from_text_generic(raw) if raw else []
+
+    # Ảnh chụp / định dạng còn lại: OCR ra chữ rồi phân tích tổng quát
+    raw = extract_text_from_file(file_path)
+    return _parse_questions_from_text_generic(raw) if raw else []
+
+
+def parse_questions_pipeline(raw_text: str, file_path: str = None):
+    questions = []
+    if file_path:
+        questions = extract_questions_universal(file_path)
+
+    if not questions and raw_text and raw_text.strip():
         questions = _parse_questions_from_text_generic(raw_text)
 
-    explicit_answers = _detect_answer_key(raw_text)
+    if not questions:
+        return []
+
+    explicit_answers = _detect_answer_key(raw_text or "")
     for q in questions:
+        if q.get("correct_answer"):
+            continue
         number_match = re.match(r"^(\d+(?:\.\d+)?)\.", q["question_text"])
         number = number_match.group(1) if number_match else None
         q["correct_answer"] = explicit_answers.get(number)
@@ -893,13 +1136,16 @@ def admin_upload():
     time_limit_minutes = int(time_limit_raw) if time_limit_raw.isdigit() and int(time_limit_raw) > 0 else None
 
     if not file or file.filename == "":
-        flash("Vui lòng chọn tệp đề thi (PDF, DOCX, PPTX, TXT hoặc Ảnh).")
+        flash("Vui lòng chọn tệp đề thi (PDF, DOCX, PPTX, XLSX, TXT hoặc Ảnh).")
         return redirect(url_for("admin_home"))
 
-    allowed_extensions = {".pdf", ".txt", ".docx", ".pptx", ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
+    allowed_extensions = {
+        ".pdf", ".txt", ".docx", ".doc", ".pptx", ".ppt", ".xlsx", ".xls",
+        ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff",
+    }
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in allowed_extensions:
-        flash("Định dạng chưa được hỗ trợ. Hãy dùng PDF, TXT, DOCX, PPTX hoặc ảnh.")
+        flash("Định dạng chưa được hỗ trợ. Hãy dùng PDF, TXT, DOCX, PPTX, XLSX hoặc ảnh.")
         return redirect(url_for("admin_home"))
 
     filename = secure_filename(file.filename)
