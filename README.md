@@ -1,65 +1,51 @@
-# Hệ thống Trung tâm — Demo
+# 🚀 SmartQuiz AI — Dynamic Exam & Practice Platform (Hệ thống trung tâm luyện thi CLC Nguyễn Khuyến)
 
-Demo Flask chạy trên localhost: upload đề (PDF/DOCX/PPTX/TXT/ảnh) → hệ thống tự trích xuất câu hỏi
-(PyMuPDF cho PDF chữ, PaddleOCR/Tesseract cho bản scan/ảnh) → giáo viên xem lại & đăng → học sinh làm
-bài (mở ở tab riêng, có thể giới hạn thời gian, hết giờ tự nộp hoặc nộp sớm tuỳ ý) → chấm điểm tự
-động, hiện điểm + thời gian làm bài trước rồi mới tới phần xem lại đúng/sai → nộp bài = điểm danh có
-mặt.
+> **Nền tảng quản lý & tạo đề thi tự động bằng Flask, hỗ trợ bóc tách đề từ nhiều định dạng file (PDF/DOCX/OCR) và xáo trộn đề theo mã số học sinh.**
 
-- **Link demo**:  https://he-thong-bai-tap-smartquizai.onrender.com/
+[![Python](https://img.shields.io/badge/Python-3.9+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
+[![Flask](https://img.shields.io/badge/Framework-Flask-000000?style=flat&logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
+[![Demo](https://img.shields.io/badge/Live-Demo-brightgreen?style=flat&logo=render)](https://he-thong-bai-tap-smartquizai.onrender.com/)
 
-## Cài đặt
+---
 
+## 📌 Mục đích dự án (Summary)
+Dự án giải quyết vấn đề **chuyển đổi đề thi truyền thống (file PDF, Word, ảnh scan) thành bài trắc nghiệm tương tác trực tuyến** mà không cần nhập liệu thủ công. Hệ thống tự động bóc tách câu hỏi, công thức, hình ảnh đi kèm, đồng thời quản lý luồng làm bài và chấm điểm tự động.
+
+---
+
+## ✨ Điểm sáng kỹ thuật (Key Highlights)
+
+* **Multi-Format OCR & Parsing**: Trích xuất tự động văn bản, bảng biểu, công thức và **ảnh minh họa** từ file PDF (`PyMuPDF`), Word (`python-docx`), Excel và ảnh scan (`PaddleOCR` / `Tesseract`).
+* **Xáo trộn đề thông minh (Anti-Cheat)**: Sử dụng Seeded Random từ `SHA-256(ExamID + StudentCode)` để sinh thứ tự câu hỏi và đáp án riêng cho từng học sinh mà vẫn giữ nguyên trạng thái khi reload.
+* **Kiểm soát phòng thi**: Đếm ngược thời gian từ server, mở tab riêng biệt và tự động nộp bài khi hết giờ hoặc chuyển tab/thoát trang (`visibilitychange`).
+* **Chấm điểm & Lưu trữ**: Chấm điểm tự động server-side, đo thời gian làm bài chính xác và ghi nhận lịch sử/điểm danh.
+
+---
+
+## 🛠️ Tech Stack
+
+* **Backend**: Python, Flask, SQLite3 (Auto-migration).
+* **Processing/OCR**: PyMuPDF, python-docx, PaddleOCR, Tesseract, Pillow.
+* **Deployment**: Render (Production).
+
+---
+
+## 🚀 Hướng dẫn chạy nhanh (Quick Start)
+
+### 1. Cài đặt môi trường
 ```bash
-pip install flask pillow pytesseract pymupdf python-docx python-pptx requests
-# PaddleOCR (tuỳ chọn, cho OCR ảnh/PDF scan chất lượng cao hơn Tesseract):
-pip install paddleocr paddlepaddle pdf2image
+git clone [https://github.com/your-username/smartquiz-ai.git](https://github.com/your-username/smartquiz-ai.git)
+cd smartquiz-ai
+python -m venv venv
+source venv/bin/activate  # Trên Windows: venv\Scripts\activate
 ```
-
-Cần cài thêm engine Tesseract nếu muốn dùng làm dự phòng:
+### 2. Cài thư viện & Chạy ứng dụng
 ```bash
-sudo apt-get install tesseract-ocr tesseract-ocr-vie   # Ubuntu
-brew install tesseract tesseract-lang                   # macOS
-```
-
-## Chạy demo
-
-```bash
+pip install flask pillow pytesseract pymupdf python-docx python-pptx openpyxl requests paddleocr
 python app.py
 ```
-- Học sinh: http://127.0.0.1:5000/
-- Giáo viên: http://127.0.0.1:5000/admin
+- **🎓 Học sinh**: http://127.0.0.1:5000/
 
-Database SQLite (`center.db`) tự tạo/migrate khi chạy lần đầu, không mất dữ liệu cũ khi nâng cấp.
+- **🛠️ Quản trị / Giáo viên** : http://127.0.0.1:5000/admin
 
-## Làm bài ở tab riêng
-
-Từ trang nhập họ tên + mã số, bấm "Bắt đầu làm bài" sẽ **mở bài làm ở một tab trình duyệt mới**
-(form dùng `target="_blank"`), tab nhập thông tin vẫn giữ nguyên. Trong lúc làm bài (chưa nộp), nếu
-học sinh lỡ đóng/tải lại tab đó, trình duyệt sẽ hỏi xác nhận trước khi rời trang — tránh mất bài làm
-dở do bấm nhầm. Lưu ý: đây không phải chế độ kiosk khoá cứng trình duyệt (không có công nghệ web
-chuẩn nào làm được điều đó vì lý do bảo mật) — học sinh vẫn có thể đóng tab nếu cố ý.
-
-## Giới hạn thời gian làm bài
-
-Khi tạo đề (hoặc sửa sau ở trang "Xem/Sửa"), giáo viên có thể đặt **số phút giới hạn**. Nếu có đặt:
-
-- Học sinh thấy đồng hồ đếm ngược ở đầu trang làm bài.
-- Đồng hồ tính theo thời điểm học sinh **bắt đầu** làm bài (lưu ở server) + số phút giới hạn — tải
-  lại trang không "được" thêm giờ.
-- Hết giờ, trình duyệt **tự động nộp bài** với những câu đã trả lời tại thời điểm đó.
-- Học sinh cũng có thể bấm **"Nộp bài" để nộp sớm** bất cứ lúc nào, không cần đợi hết giờ.
-- Để trống ô giới hạn thời gian = không giới hạn, không hiện đồng hồ.
-
-## Trang kết quả
-
-Sau khi nộp, trang kết quả hiện **khung điểm số + thời gian làm bài + thời điểm nộp** ở trên cùng,
-rồi mới tới phần xem lại từng câu đúng/sai bên dưới.
-
-## Giới hạn của bản demo
-
-- Đồng hồ đếm ngược và cảnh báo rời trang chạy ở trình duyệt (client-side) — không phải cơ chế chống
-  gian lận cấp production (học sinh có thể sửa giờ máy, dùng devtools...). Phù hợp quy mô lớp học nhỏ,
-  tin tưởng lẫn nhau.
-- Chưa có xác thực đăng nhập cho khu vực giáo viên (`/admin`).
-- SQLite phù hợp demo/localhost; lên production nên đổi sang Postgres.
+- **🌐 Live Demo**: https://he-thong-bai-tap-smartquizai.onrender.com/
