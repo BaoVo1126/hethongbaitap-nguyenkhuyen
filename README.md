@@ -6,6 +6,8 @@ bài (mở ở tab riêng, có thể giới hạn thời gian, hết giờ tự 
 động, hiện điểm + thời gian làm bài trước rồi mới tới phần xem lại đúng/sai → nộp bài = điểm danh có
 mặt.
 
+- **Link demo**:  https://he-thong-bai-tap-smartquizai.onrender.com/
+
 ## Cài đặt
 
 ```bash
