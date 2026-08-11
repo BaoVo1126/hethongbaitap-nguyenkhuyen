@@ -1,8 +1,18 @@
 {% extends "base.html" %}
 {% block content %}
   <div class="stub">
-    <div class="score-big">{{ submission['score'] }}/{{ submission['total'] }}</div>
-    <div class="score-sub">{{ exam['title'] }}</div>
+    <!-- 1. HIỂN THỊ ĐIỂM TỔNG TRÊN THANG ĐIỂM 10 Ở DÒNG ĐẦU TIÊN -->
+    <div class="score-big" style="color: #dc2626; font-size: 2.8rem; font-weight: 800; margin-bottom: 0.2rem;">
+      {{ "%.1f"|format(submission['score'] / submission['total'] * 10) }}/10 <span style="font-size: 1.2rem; font-weight: 600; color: #64748b;">điểm</span>
+    </div>
+
+    <!-- 2. HIỂN THỊ SỐ CÂU ĐÚNG TRÊN TỔNG SỐ CÂU Ở DÒNG DƯỚI -->
+    <div class="score-sub" style="font-size: 1.1rem; font-weight: 600; color: #334155; margin-bottom: 0.5rem;">
+      Số câu đúng: <span style="color: #16a34a; font-weight: 700;">{{ submission['score'] }}</span> / {{ submission['total'] }} câu
+    </div>
+
+    <div class="score-sub" style="font-weight: 700; color: #1e293b;">{{ exam['title'] }}</div>
+    
     <div class="stub-meta">
       <span>HS: {{ test['student_name'] }} ({{ test['student_code'] }})</span>
       {% if duration_str %}<span>Thời gian làm bài: {{ duration_str }}</span>{% endif %}
