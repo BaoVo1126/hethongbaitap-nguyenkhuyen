@@ -78,7 +78,7 @@ CENTER_INFO = {
 }
 
 # MẬT KHẨU BẢO VỆ DÀNH CHO GIÁO VIÊN
-TEACHER_PASSWORD = os.environ.get("TEACHER_PASSWORD", "123456")
+TEACHER_PASSWORD = os.environ.get("TEACHER_PASSWORD", "1111")
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "demo-secret-key-doi-khi-deploy-that"
