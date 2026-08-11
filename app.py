@@ -8,6 +8,7 @@ from datetime import datetime, date
 import requests 
 from flask import Flask, g, render_template, request, redirect, url_for, flash, abort, send_from_directory
 from werkzeug.utils import secure_filename
+
 os.environ["FLAGS_use_mkldnn"] = "0"
 os.environ["FLAGS_enable_pir_api"] = "0"
 
@@ -273,7 +274,7 @@ def _ocr_image_tesseract(image) -> str:
 def _pdf_has_real_text(text: str) -> bool:
     if not text or len(text.strip()) < 40:
         return False
-    question_hits = len(re.findall(r"(?m)^\s*\d+\.\d+\.\s+", text))
+    question_hits = len(re.findall(r"(?m)^\s*(?:\d+\.\d+|\d+)\.\s+", text))
     word_hits = len(re.findall(r"[A-Za-zÀ-ỹ]{3,}", text))
     return question_hits >= 1 or word_hits >= 20
 
@@ -329,7 +330,38 @@ def extract_text_from_file(file_path: str) -> str:
     return ""
 
 
+def _smart_join_fragments(parts) -> str:
+    """Ghép các dòng bị bẻ (word-wrap) của một đáp án lại thành 1 chuỗi.
+    Nếu một dòng kết thúc bằng dấu gạch nối do bị ngắt giữa từ (VD:
+    '2-methylbut-2-' rồi xuống dòng tiếp 'ene'), nối liền không thêm khoảng
+    trắng để ra '2-methylbut-2-ene' thay vì '2-methylbut-2- ene'."""
+    cleaned = [p.strip() for p in parts if p and p.strip()]
+    if not cleaned:
+        return ""
+    result = cleaned[0]
+    for part in cleaned[1:]:
+        if result.endswith("-") and not result.endswith("--"):
+            result += part
+        else:
+            result += " " + part
+    return re.sub(r"\s+", " ", result).strip()
+
+
+# Một chữ cái đáp án (A/B/C/D) phải được theo sau bởi khoảng trắng, dấu câu,
+# hoặc hết dòng — KHÔNG được theo sau bởi một chữ cái khác. Nhờ vậy các từ
+# tiếng Anh bắt đầu bằng A/B/C/D trong nội dung câu hỏi (VD: "Alcohol",
+# "Acetone", "Base", "Dung dịch") không bao giờ bị nhận nhầm là nhãn đáp án.
+_OPTION_START_RE = re.compile(r"^(?:[\$]\s*)?([ABCD])(?![A-Za-zÀ-ỹ])[.\)~:]?\s*(.*)$")
+
+
 def _parse_option_lines(text: str):
+    """Trích 4 đáp án A/B/C/D từ văn bản thô. Hỗ trợ mọi kiểu trình bày gặp
+    trong đề: mỗi đáp án 1 dòng riêng (dạng lý thuyết dài, 4 dòng), 2 đáp án
+    chung 1 dòng (dạng ngắn, gọn 2 bên), đáp án dài bị word-wrap qua nhiều
+    dòng, và trường hợp chữ cái đứng một mình trên 1 dòng còn nội dung xuống
+    dòng kế tiếp. Các dòng trông giống tiêu đề/chân trang lặp lại (VD:
+    'II. Bài tập tự luận' chen giữa do OCR/PDF bị lẫn trang) sẽ bị bỏ qua để
+    không lẫn vào nội dung đáp án cuối cùng."""
     options = []
     current_letter = None
     current_parts = []
@@ -338,18 +370,21 @@ def _parse_option_lines(text: str):
         line = _clean_extracted_line(raw_line)
         if not line:
             continue
+        if _looks_like_header_or_footer(line):
+            continue
 
-        m = re.match(r"^([ABCD])(?:\s+(.*))?$", line)
+        m = _OPTION_START_RE.match(line)
         if m:
             if current_letter is not None:
-                options.append((current_letter, _join_wrapped_lines(" ".join(current_parts))))
-            current_letter = m.group(1)
-            current_parts = [m.group(2)] if m.group(2) else []
+                options.append((current_letter, _smart_join_fragments(current_parts)))
+            current_letter = m.group(1).upper()
+            val = m.group(2).strip()
+            current_parts = [val] if val else []
         elif current_letter is not None:
             current_parts.append(line)
 
     if current_letter is not None:
-        options.append((current_letter, _join_wrapped_lines(" ".join(current_parts))))
+        options.append((current_letter, _smart_join_fragments(current_parts)))
 
     return options
 
@@ -359,6 +394,23 @@ def _extract_questions_from_pdf_layout(file_path: str):
         return []
 
     doc = fitz.open(file_path)
+
+    # Đọc hết mọi block của mọi trang trước (thay vì xử lý xong-trang-nào-bỏ-
+    # trang-đó), để một câu hỏi bị ngắt giữa 2 trang (thân câu ở cuối trang
+    # này, đáp án ở đầu trang sau) vẫn được ghép liền mạch bên dưới.
+    # LƯU Ý: không dùng kiểu "block lặp lại ở >=2 trang thì coi là boilerplate"
+    # — nhiều đề trắc nghiệm có các bộ đáp án giống hệt nhau ở nhiều câu khác
+    # nhau (VD: "A but-1-ene B but-2-ene C but-1-yne D but-2-yne" lặp lại cho
+    # 2 câu hỏi khác nội dung), nên cách đó sẽ xóa nhầm đáp án thật.
+    all_pages_blocks = []
+    for page in doc:
+        blocks = page.get_text("blocks", sort=True)
+        page_blocks = [(block[4] or "", _join_wrapped_lines(block[4] or "")) for block in blocks]
+        all_pages_blocks.append(page_blocks)
+
+    def is_boilerplate(cleaned: str) -> bool:
+        return _looks_like_header_or_footer(cleaned)
+
     questions = []
     current = None
 
@@ -367,26 +419,15 @@ def _extract_questions_from_pdf_layout(file_path: str):
         if current is None:
             return
 
+        # Ghép toàn bộ các block đáp án (kể cả khi bị chia làm nhiều block do
+        # bố cục 2 cột, hoặc bị tràn/ngắt trang) thành 1 khối văn bản rồi bóc
+        # tách 1 lần duy nhất — nhờ vậy 1 đáp án bị ngắt giữa nhiều block vẫn
+        # được nối liền đúng thứ tự thay vì xử lý rời rạc từng block.
+        combined = "\n".join(current["option_blocks"])
         parsed_options = {}
-        orphan_text = []
-
-        for block_text in current["option_blocks"]:
-            parsed = _parse_option_lines(block_text)
-            if parsed:
-                for letter, value in parsed:
-                    if letter not in parsed_options:
-                        parsed_options[letter] = value
-                    elif value and not parsed_options[letter]:
-                        parsed_options[letter] = value
-            else:
-                cleaned = _join_wrapped_lines(block_text)
-                if cleaned and not _looks_like_header_or_footer(cleaned):
-                    orphan_text.append(cleaned)
-
-        if len(parsed_options) == 4 and orphan_text:
-            tail = " ".join(orphan_text).strip()
-            if tail:
-                parsed_options["D"] = (parsed_options.get("D", "") + " " + tail).strip()
+        for letter, value in _parse_option_lines(combined):
+            if letter not in parsed_options or (value and not parsed_options[letter]):
+                parsed_options[letter] = value
 
         if all(k in parsed_options and parsed_options[k] for k in "ABCD"):
             qtext = _join_wrapped_lines("\n".join(current["question_text"]))
@@ -402,15 +443,17 @@ def _extract_questions_from_pdf_layout(file_path: str):
 
         current = None
 
-    for page_number, page in enumerate(doc, start=1):
-        blocks = page.get_text("blocks", sort=True)
-        for block in blocks:
-            text = block[4] or ""
+    for page_number, page_blocks in enumerate(all_pages_blocks, start=1):
+        for text, cleaned in page_blocks:
             lines = text.splitlines()
             if not lines:
                 continue
 
-            m = re.match(r"^\s*(\d+\.\d+)\.\s*(.*)$", lines[0])
+            if is_boilerplate(cleaned):
+                continue
+
+            # Cho phép khớp cả dạng số thứ tự chuẩn (VD: 19.1 hoặc 1)
+            m = re.match(r"^\s*(\d+(?:\.\d+)?)\.\s*(.*)$", lines[0])
             if m:
                 flush_current()
                 current = {
@@ -429,21 +472,39 @@ def _extract_questions_from_pdf_layout(file_path: str):
 
 
 def _looks_like_header_or_footer(text: str) -> bool:
+    """Nhận diện tiêu đề/chân trang lặp lại và các dòng phân mục (I./II./■...)
+    để không bao giờ lẫn vào nội dung câu hỏi hay đáp án. So khớp không phân
+    biệt khoảng trắng vì PDF hay bị mất khoảng trắng giữa 2 từ có dấu (VD:
+    "tự luận" trích ra thành "tựluận") — nếu so khớp có khoảng trắng cứng thì
+    sẽ bỏ sót đúng những trường hợp hay gặp nhất."""
     t = text.lower().strip()
     if not t:
         return True
+    t_nospace = re.sub(r"\s+", "", t)
+
     header_words = (
-        "hóa học 11",
-        "chương 6:",
-        "gv. nguyễn trung kiên",
-        "mức độ",
-        "trắc nghiệm khách quan",
-        "bài tập tự luận",
+        "hóa học", "chương", "ôn tập", "hệ thống bài tập", "mục tiêu",
+        "gv.", "mức độ", "trắc nghiệm khách quan", "bài tập tự luận",
     )
-    if any(x in t for x in header_words):
+    for word in header_words:
+        if re.sub(r"\s+", "", word) in t_nospace:
+            return True
+
+    # Dòng phân mục kiểu "I. Trắc nghiệm...", "II. Bài tập...", hoặc gạch đầu
+    # dòng "■ Mức độ..."
+    if re.match(r"^[■•]", t):
         return True
+    if re.match(r"^(?:i|ii|iii|iv|v)\.\s", t):
+        return True
+
+    # Số trang đơn lẻ, có thể kẹp giữa dấu gạch ngang
     if re.fullmatch(r"[-–—\s]*\d+[-–—\s]*", t):
         return True
+
+    # Dòng chân trang kiểu số điện thoại giáo viên ("SĐT: 0979...")
+    if re.search(r"\bsđt\b|\bđt\b\s*[:.]?\s*\d{8,}", t):
+        return True
+
     return False
 
 
@@ -454,7 +515,7 @@ def _parse_questions_from_text_generic(raw_text: str):
     lines = raw_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     starts = []
     for i, line in enumerate(lines):
-        m = re.match(r"^\s*(\d+\.\d+)\.\s*(.*)$", line)
+        m = re.match(r"^\s*(\d+(?:\.\d+)?)\.\s*(.*)$", line)
         if m:
             starts.append((i, m.group(1), m.group(2)))
 
@@ -467,7 +528,7 @@ def _parse_questions_from_text_generic(raw_text: str):
         seen_option = False
 
         for line in block[1:]:
-            if re.match(r"^\s*[ABCD]\s+", line):
+            if re.match(r"^\s*(?:[\$]\s*)?[ABCD]\b", line):
                 seen_option = True
             if seen_option:
                 option_source.append(line)
@@ -504,6 +565,17 @@ def _detect_answer_key(raw_text: str):
     for pattern in patterns:
         for m in re.finditer(pattern, raw_text, flags=re.IGNORECASE):
             answers[m.group(1)] = m.group(2).upper()
+
+    # Nhiều đề có riêng 1 khối "ĐÁP ÁN" ở cuối trình bày dạng bảng gọn:
+    # "1.A 2.B 3.C ..." hoặc "1-A 2-B 3-C ...". Chỉ quét dạng gọn này BÊN
+    # TRONG khối đáp án (sau khi tìm thấy tiêu đề "đáp án") để không bao giờ
+    # đọc nhầm số thứ tự câu hỏi bình thường ở nơi khác thành đáp án.
+    key_section = re.search(r"đáp\s*án|dap\s*an|answer\s*key", raw_text, flags=re.IGNORECASE)
+    if key_section:
+        tail = raw_text[key_section.end():]
+        for m in re.finditer(r"\b(\d+(?:\.\d+)?)\s*[.\-:)]\s*([ABCD])\b", tail):
+            answers.setdefault(m.group(1), m.group(2).upper())
+
     return answers
 
 
@@ -520,7 +592,7 @@ def parse_questions_pipeline(raw_text: str, file_path: str = None):
 
     explicit_answers = _detect_answer_key(raw_text)
     for q in questions:
-        number_match = re.match(r"^(\d+\.\d+)\.", q["question_text"])
+        number_match = re.match(r"^(\d+(?:\.\d+)?)\.", q["question_text"])
         number = number_match.group(1) if number_match else None
         q["correct_answer"] = explicit_answers.get(number)
 
@@ -535,14 +607,12 @@ def parse_questions_from_text_regex(raw_text: str):
 # --------------------------------------------------------------------------
 
 def seeded_random(exam_id: int, student_code: str) -> random.Random:
-    """Tạo seed ngẫu nhiên duy nhất dựa trên Mã số học sinh và Đề thi."""
     key = f"{exam_id}:{student_code.strip().lower()}".encode("utf-8")
     seed = int(hashlib.sha256(key).hexdigest(), 16) % (2**32)
     return random.Random(seed)
 
 
 def generate_test(exam_id: int, student_name: str, student_code: str, num_questions: int = None):
-    """Tạo đề thi ngẫu nhiên hóa câu hỏi & đáp án A/B/C/D dựa trên MSSV."""
     db = get_db()
     all_questions = db.execute(
         "SELECT * FROM questions WHERE exam_id = ? ORDER BY order_index", (exam_id,)
@@ -550,18 +620,15 @@ def generate_test(exam_id: int, student_name: str, student_code: str, num_questi
     if not all_questions:
         return None
 
-    # Khởi tạo thuật toán tráo ngẫu nhiên dựa theo MSSV
     rng = seeded_random(exam_id, student_code)
     q_ids = [q["id"] for q in all_questions]
 
-    # 1. Xáo trộn thứ tự CÂU HỎI dựa trên MSSV
     if RANDOMIZE_EXAM:
         rng.shuffle(q_ids)
 
     if num_questions:
         q_ids = q_ids[:num_questions]
 
-    # 2. Xáo trộn thứ tự CÁC ĐÁP ÁN (A, B, C, D) dựa trên MSSV
     option_maps = {}
     for q in all_questions:
         if q["id"] not in q_ids:
@@ -1007,15 +1074,10 @@ def admin_publish_exam(exam_id):
     if n == 0:
         flash("Đề chưa có câu hỏi nào, không thể đăng bài.")
         return redirect(url_for("admin_edit_exam", exam_id=exam_id))
-    n_missing = db.execute(
-        "SELECT COUNT(*) c FROM questions WHERE exam_id=? AND (correct_answer IS NULL OR correct_answer='')",
-        (exam_id,),
-    ).fetchone()["c"]
-    if n_missing:
-        flash(f"Còn {n_missing} câu chưa chọn đáp án đúng — vui lòng điền đủ trước khi đăng.")
-        return redirect(url_for("admin_edit_exam", exam_id=exam_id))
+    
     db.execute("UPDATE exams SET status='published' WHERE id=?", (exam_id,))
     db.commit()
+    flash("Đã xuất bản bài kiểm tra thành công cho học sinh!")
     return redirect(url_for("admin_home"))
 
 
@@ -1121,16 +1183,13 @@ def info_page():
 @app.route("/info/submission/<int:submission_id>/delete", methods=["POST"])
 def delete_submission(submission_id):
     db = get_db()
-    # Tìm thông tin lượt nộp bài
     sub = db.execute("SELECT * FROM submissions WHERE id = ?", (submission_id,)).fetchone()
     if sub:
-        # Xóa lượt nộp bài (submission) và bản ghi khởi tạo đề thi tương ứng (tests)
         db.execute("DELETE FROM submissions WHERE id = ?", (submission_id,))
         db.execute("DELETE FROM tests WHERE id = ?", (sub["test_id"],))
         db.commit()
         flash("Đã xóa lượt làm bài của học sinh thành công.")
     return redirect(url_for("info_page"))
-
 
 
 @app.route("/admin/documents/upload", methods=["POST"])
