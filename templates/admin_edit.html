@@ -1,146 +1,182 @@
 {% extends "base.html" %}
 {% block content %}
+  {% include "_admin_tabs.html" %}
 
-<!-- GHI ĐÈ CSS CỦA BASE.HTML ĐỂ MỞ RỘNG TOÀN BỘ KHUNG CHỨA -->
 <style>
-  /* Tìm và phá bỏ giới hạn max-width của container cha trong base.html */
-  main, .container, .content, .main-content, body > div {
-    max-width: 100% !important;
-    width: 100% !important;
-    padding-left: 1rem !important;
-    padding-right: 1.5rem !important;
-    box-sizing: border-box !important;
+  .exam-edit-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.2rem;
+  }
+  .exam-edit-title { font-size: 1.2rem; font-weight: 700; color: var(--ink); }
+  .exam-edit-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+
+  .exam-settings-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.4rem;
+  }
+  .exam-settings-row form {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.6rem;
+    background: #ffffff;
+    border: 1px solid var(--paper-line);
+    border-radius: var(--card-radius);
+    padding: 0.8rem 1rem;
+  }
+  .exam-settings-row label { margin: 0; }
+  .exam-settings-row input { width: auto; min-width: 160px; }
+
+  .question-edit-card {
+    background: #ffffff;
+    border: 1px solid var(--paper-line);
+    border-radius: var(--card-radius);
+    padding: 1.1rem 1.2rem;
+    margin-bottom: 1rem;
+  }
+  .question-edit-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.6rem;
+  }
+  .question-edit-head .q-num {
+    font-weight: 700;
+    color: var(--header-red);
+    font-size: 0.95rem;
+  }
+  .question-edit-card textarea.q-text-input {
+    min-height: 60px;
+    margin-bottom: 0.8rem;
+  }
+  .option-edit-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+  }
+  .option-edit-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .option-edit-row .opt-letter {
+    font-weight: 700;
+    color: var(--ink-soft);
+    width: 1.3rem;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .option-edit-row input[type=radio] {
+    width: auto;
+    flex-shrink: 0;
+    accent-color: var(--correct);
+  }
+  .option-edit-row input[type=text] {
+    flex: 1;
+  }
+  .correct-answer-hint {
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+    margin-top: 0.5rem;
+  }
+  @media (max-width: 700px) {
+    .option-edit-grid { grid-template-columns: 1fr; }
   }
 </style>
 
-<div style="width: 100%; box-sizing: border-box;">
-  <div class="section-label" style="font-weight: 600; font-size: 1.1rem; margin-bottom: 1rem;">
-    {{ exam['title'] }} &middot; {{ test['student_name'] }} ({{ test['student_code'] }})
+<div class="exam-edit-head">
+  <div class="exam-edit-title">
+    {{ exam['title'] }}
+    {% if exam['subject'] %}<span class="meta" style="font-weight:400; color:var(--ink-soft);"> &middot; {{ exam['subject'] }}</span>{% endif %}
+    <span class="status-chip {{ exam['status'] }}">{{ 'Đã đăng' if exam['status']=='published' else 'Bản nháp' }}</span>
   </div>
+  <div class="exam-edit-actions">
+    <a class="btn small secondary" href="{{ url_for('admin_home') }}">&larr; Về danh sách đề</a>
+    {% if exam['status'] == 'published' %}
+      <form method="POST" action="{{ url_for('admin_unpublish_exam', exam_id=exam['id']) }}" style="display:inline;">
+        <button class="btn small danger" type="submit">Gỡ đăng</button>
+      </form>
+    {% else %}
+      <form method="POST" action="{{ url_for('admin_publish_exam', exam_id=exam['id']) }}" style="display:inline;">
+        <button class="btn small" type="submit">Đăng cho học sinh</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
 
-  <form method="POST" action="{{ url_for('submit_test', test_id=test['id']) }}" id="test-form" style="width: 100%;">
-    
-    <!-- LAYOUT FLEXBOX 2 CỘT DÃN KÍN TỪ KẺ DỌC BÊN TRÁI SÁT TỚI MÉP MÀN HÌNH BÊN PHẢI -->
-    <div style="display: flex; gap: 1.5rem; width: 100%; align-items: flex-start; box-sizing: border-box;">
-      
-      <!-- CỘT GIỮA (BÀI TẬP): KÉO ĐỤNG KẺ DỌC TRÁI VÀ PHÓNG TO HẾT CỠ -->
-      <div style="flex: 1; min-width: 0;">
-        <div class="board" style="padding: 1.5rem 2rem; width: 100%; box-sizing: border-box;">
-          {% for q in questions %}
-            <div class="question-block" style="margin-bottom: 2.2rem;">
-              <div class="q-number" style="font-weight: 700; font-size: 1.1rem; margin-bottom: 0.6rem; color: var(--header-red, #b5473a);">
-                Câu {{ q['index'] }}
-              </div>
-              <div class="q-text" style="font-size: 1.05rem; line-height: 1.6; margin-bottom: 1rem; font-weight: 500; color: #222;">
-                {{ q['question_text'] }}
-              </div>
-              <div class="options" style="display: flex; flex-direction: column; gap: 0.6rem;">
-                {% for letter, text in q['options'] %}
-                  <label class="option-row" style="display: flex; align-items: center; width: 100%; padding: 0.7rem 1rem; border: 1px solid #e2e8f0; border-radius: 8px; cursor: pointer; transition: background 0.2s; box-sizing: border-box;">
-                    <input type="radio" name="q_{{ q['id'] }}" value="{{ letter }}" style="margin-right: 0.8rem; transform: scale(1.2);">
-                    <span style="font-size: 1rem; color: #333;">
-                      <strong class="letter" style="color: var(--header-red, #b5473a); margin-right: 0.3rem;">{{ letter }}.</strong> {{ text }}
-                    </span>
-                  </label>
-                {% endfor %}
-              </div>
-            </div>
-          {% endfor %}
-        </div>
-      </div>
-
-      <!-- CỘT PHẢI (ĐẾM NGƯỢC & NỘP BÀI): SÁT LỀ PHẢI MÀN HÌNH -->
-      <div style="width: 320px; flex-shrink: 0; position: sticky; top: 1rem; z-index: 10;">
-        <div class="board" style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1.2rem; border: 1px solid #e0e0e0; background: #fff; border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.06);">
-          
-          {% if exam['time_limit_minutes'] %}
-            <div id="timer-box" style="display: flex; flex-direction: column; gap: 0.3rem; text-align: center;">
-              <span style="font-size: 0.85rem; font-weight: 700; color: #666; text-transform: uppercase; letter-spacing: 0.8px;">Thời gian còn lại</span>
-              <span id="countdown" style="font-weight: 900; font-size: 2.6rem; color: #000000; letter-spacing: 1px; line-height: 1.1;">--:--</span>
-            </div>
-            <hr style="border: 0; border-top: 1px solid #eee; margin: 0;">
-          {% else %}
-            <div style="text-align: center; font-size: 0.9rem; color: #666; font-weight: 500;">
-              Bài kiểm tra không giới hạn thời gian.
-            </div>
-            <hr style="border: 0; border-top: 1px solid #eee; margin: 0;">
-          {% endif %}
-
-          <button class="btn" type="submit" style="width: 100%; font-weight: 700; font-size: 1.05rem; padding: 0.9rem 1rem; cursor: pointer; border-radius: 8px;">
-            Nộp bài
-          </button>
-          
-          <div class="hint" style="font-size: 0.82rem; line-height: 1.4; color: #666; text-align: center; margin-top: -0.3rem;">
-            Nộp bài sẽ tự động ghi nhận điểm danh có mặt cho buổi học này.
-          </div>
-        </div>
-      </div>
-
+<div class="exam-settings-row">
+  <form method="POST" action="{{ url_for('admin_update_schedule', exam_id=exam['id']) }}">
+    <div>
+      <label>Ngày mở bài</label>
+      <input type="date" name="available_date" value="{{ exam['available_date'] or '' }}">
     </div>
+    <button class="btn small secondary" type="submit">Lưu ngày</button>
+  </form>
+
+  <form method="POST" action="{{ url_for('admin_update_time_limit', exam_id=exam['id']) }}">
+    <div>
+      <label>Thời gian làm bài (phút)</label>
+      <input type="number" name="time_limit_minutes" min="1" placeholder="Để trống = không giới hạn" value="{{ exam['time_limit_minutes'] or '' }}">
+    </div>
+    <button class="btn small secondary" type="submit">Lưu thời gian</button>
   </form>
 </div>
 
-<script>
-  var examInProgress = true;
-  window.addEventListener('beforeunload', function (e) {
-    if (examInProgress) {
-      e.preventDefault();
-      e.returnValue = '';
-    }
-  });
-  document.getElementById('test-form').addEventListener('submit', function () {
-    examInProgress = false;
-  });
-</script>
+<div class="section-label">
+  Danh sách câu hỏi ({{ questions|length }} câu)
+</div>
 
-{% if exam['time_limit_minutes'] %}
-<script>
-(function () {
-  var rawDateStr = "{{ test['created_at'] }}".replace(" ", "T");
-  var createdAt = new Date(rawDateStr);
-  
-  if (isNaN(createdAt.getTime())) {
-    createdAt = new Date();
-  }
+{% if questions %}
+<form method="POST" action="{{ url_for('admin_save_all_questions', exam_id=exam['id']) }}" id="edit-questions-form">
+  {% for q in questions %}
+    <input type="hidden" name="question_ids" value="{{ q['id'] }}">
+    <div class="question-edit-card">
+      <div class="question-edit-head">
+        <span class="q-num">Câu {{ loop.index }}</span>
+        <button class="btn small danger" type="submit" formaction="{{ url_for('admin_delete_question', question_id=q['id']) }}" formnovalidate onclick="return confirm('Xoá câu hỏi này khỏi đề?');">Xoá câu</button>
+      </div>
 
-  var limitMinutes = parseInt("{{ exam['time_limit_minutes'] or 0 }}", 10);
-  var deadline = createdAt.getTime() + limitMinutes * 60000;
+      <label>Nội dung câu hỏi</label>
+      <textarea class="q-text-input" name="question_text_{{ q['id'] }}">{{ q['question_text'] }}</textarea>
 
-  var countdownEl = document.getElementById('countdown');
-  var timerBox = document.getElementById('timer-box');
-  var form = document.getElementById('test-form');
-  var autoSubmitted = false;
+      <label>4 phương án &middot; chọn nút tròn ở phương án đúng</label>
+      <div class="option-edit-grid">
+        {% for letter in ['A', 'B', 'C', 'D'] %}
+          <div class="option-edit-row">
+            <input type="radio" name="correct_answer_{{ q['id'] }}" value="{{ letter }}" {% if q['correct_answer'] == letter %}checked{% endif %}>
+            <span class="opt-letter">{{ letter }}</span>
+            <input type="text" name="option_{{ letter|lower }}_{{ q['id'] }}" value="{{ q['option_' ~ letter|lower] }}">
+          </div>
+        {% endfor %}
+      </div>
+      {% if not q['correct_answer'] %}
+        <div class="correct-answer-hint">Chưa chọn đáp án đúng cho câu này.</div>
+      {% endif %}
+    </div>
+  {% endfor %}
 
-  function formatTime(ms) {
-    var totalSec = Math.max(0, Math.floor(ms / 1000));
-    var m = Math.floor(totalSec / 60);
-    var s = totalSec % 60;
-    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
-  }
+  <button class="btn" type="submit">Lưu toàn bộ thay đổi</button>
+</form>
+{% else %}
+  <div class="board">
+    <div class="empty-note">Chưa có câu hỏi nào cho đề này. Hãy thêm câu hỏi thủ công bên dưới.</div>
+  </div>
+{% endif %}
 
-  function tick() {
-    var remaining = deadline - Date.now();
+<form method="POST" action="{{ url_for('admin_add_question', exam_id=exam['id']) }}" style="margin-top:1rem;">
+  <button class="btn secondary" type="submit">+ Thêm câu hỏi trống</button>
+</form>
 
-    if (remaining <= 0) {
-      if (!autoSubmitted) {
-        autoSubmitted = true;
-        examInProgress = false;
-        if (timerBox) {
-          timerBox.innerHTML = '<strong style="color: #000; font-size: 0.95rem;">Hết giờ — đang tự động nộp bài...</strong>';
-        }
-        form.submit();
-      }
-      return;
-    }
-
-    if (countdownEl) countdownEl.textContent = formatTime(remaining);
-
-    setTimeout(tick, 1000);
-  }
-
-  tick();
-})();
-</script>
+{% if exam['raw_ocr_text'] %}
+  <details style="margin-top:1.6rem;">
+    <summary style="cursor:pointer; font-weight:700; color:var(--ink-soft); font-size:0.85rem;">Xem văn bản gốc trích xuất từ tệp (để đối chiếu)</summary>
+    <pre style="white-space:pre-wrap; background:#fff; border:1px solid var(--paper-line); border-radius:var(--card-radius); padding:1rem; margin-top:0.6rem; font-size:0.82rem; max-height:400px; overflow:auto;">{{ exam['raw_ocr_text'] }}</pre>
+  </details>
 {% endif %}
 
 {% endblock %}
