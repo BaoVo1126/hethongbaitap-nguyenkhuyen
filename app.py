@@ -4,6 +4,7 @@ import json
 import sqlite3
 import random
 import hashlib
+import uuid
 import subprocess
 from datetime import datetime, date
 import requests 
@@ -37,7 +38,6 @@ except ImportError:
     PADDLE_AVAILABLE = False
     _ocr = None
 
-
 try:
     import pytesseract
     from PIL import Image
@@ -45,13 +45,11 @@ try:
 except ImportError:
     OCR_AVAILABLE = False
 
-
 try:
     from pdf2image import convert_from_path
     PDF2IMAGE_AVAILABLE = True
 except ImportError:
     PDF2IMAGE_AVAILABLE = False
-
 
 
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
@@ -63,9 +61,12 @@ DB_PATH = os.path.join(BASE_DIR, "center.db")
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 DOCS_DIR = os.path.join(UPLOAD_DIR, "documents")
 CONVERTED_DIR = os.path.join(UPLOAD_DIR, "_converted")
+EXTRACTED_IMAGES_DIR = os.path.join(BASE_DIR, "static", "extracted_images")
+
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(DOCS_DIR, exist_ok=True)
 os.makedirs(CONVERTED_DIR, exist_ok=True)
+os.makedirs(EXTRACTED_IMAGES_DIR, exist_ok=True)
 
 CENTER_NAME = "Trung Tâm Nguyễn Khuyến"
 CENTER_INFO = {
@@ -77,15 +78,23 @@ CENTER_INFO = {
     ),
 }
 
-# MẬT KHẨU BẢO VỆ DÀNH CHO GIÁO VIÊN
 TEACHER_PASSWORD = os.environ.get("TEACHER_PASSWORD", "1111")
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "demo-secret-key-doi-khi-deploy-that"
-app.config["MAX_CONTENT_LENGTH"] = 30 * 1024 * 1024  # 30MB
+app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 32MB
 
-# BẬT MẶC ĐỊNH CHẾ ĐỘ XÁO TRỘN CÂU HỎI VÀ ĐÁP ÁN THEO MÃ SỐ HỌC SINH (RANDOMIZE_EXAM = True)
 RANDOMIZE_EXAM = True
+
+
+@app.template_filter('from_json')
+def from_json_filter(value):
+    if not value:
+        return []
+    try:
+        return json.loads(value)
+    except Exception:
+        return []
 
 
 def get_db():
@@ -124,11 +133,14 @@ def init_db():
             exam_id INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
             order_index INTEGER NOT NULL,
             question_text TEXT NOT NULL,
+            question_type TEXT NOT NULL DEFAULT 'mcq',
             option_a TEXT NOT NULL,
             option_b TEXT NOT NULL,
             option_c TEXT NOT NULL,
             option_d TEXT NOT NULL,
-            correct_answer TEXT
+            correct_answer TEXT,
+            correct_answer_text TEXT,
+            image_urls TEXT DEFAULT '[]'
         );
 
         CREATE TABLE IF NOT EXISTS tests (
@@ -154,6 +166,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             original_filename TEXT NOT NULL,
             stored_filename TEXT NOT NULL,
+            subject TEXT,
             uploaded_at TEXT NOT NULL
         );
         """
@@ -163,23 +176,33 @@ def init_db():
         db.execute("ALTER TABLE exams ADD COLUMN available_date TEXT")
     if "time_limit_minutes" not in cols:
         db.execute("ALTER TABLE exams ADD COLUMN time_limit_minutes INTEGER")
+
+    doc_cols = [r[1] for r in db.execute("PRAGMA table_info(documents)").fetchall()]
+    if "subject" not in doc_cols:
+        db.execute("ALTER TABLE documents ADD COLUMN subject TEXT")
+        
+    q_cols = [r[1] for r in db.execute("PRAGMA table_info(questions)").fetchall()]
+    if "image_urls" not in q_cols:
+        db.execute("ALTER TABLE questions ADD COLUMN image_urls TEXT DEFAULT '[]'")
+    if "question_type" not in q_cols:
+        db.execute("ALTER TABLE questions ADD COLUMN question_type TEXT NOT NULL DEFAULT 'mcq'")
+    if "correct_answer_text" not in q_cols:
+        db.execute("ALTER TABLE questions ADD COLUMN correct_answer_text TEXT")
+
     db.commit()
     db.close()
 
 
 # --------------------------------------------------------------------------
-# Pipeline: deterministic document -> exact question extraction
+# Pipeline: Deterministic document & Enhanced Image/Question Extractor
 # --------------------------------------------------------------------------
 
-
 def _clean_extracted_line(line: str) -> str:
-    """Remove PDF line noise without changing the actual wording."""
     line = line.replace("\u00a0", " ")
     return re.sub(r"\s+", " ", line).strip()
 
 
 def _join_wrapped_lines(text: str) -> str:
-    """Join visual line wraps while preserving the words/content."""
     lines = [_clean_extracted_line(x) for x in text.splitlines()]
     lines = [x for x in lines if x]
     return " ".join(lines).strip()
@@ -195,7 +218,7 @@ def _read_txt(file_path: str) -> str:
     return ""
 
 
-def _read_docx(file_path: str) -> str:
+def _read_docx(file_path: str, exam_id: int = None) -> str:
     try:
         from docx import Document
     except ImportError:
@@ -203,12 +226,34 @@ def _read_docx(file_path: str) -> str:
 
     doc = Document(file_path)
     parts = []
+    
+    if exam_id:
+        doc_img_dir = os.path.join(EXTRACTED_IMAGES_DIR, str(exam_id))
+        os.makedirs(doc_img_dir, exist_ok=True)
+        img_index = 1
+        for rel in doc.part.rels.values():
+            if "image" in rel.target_ref:
+                try:
+                    img_part = rel.target_part
+                    img_ext = img_part.content_type.split('/')[-1]
+                    if img_ext not in ['png', 'jpeg', 'jpg', 'gif', 'webp']:
+                        img_ext = 'png'
+                    img_name = f"docx_img_{img_index}_{uuid.uuid4().hex[:6]}.{img_ext}"
+                    img_save_path = os.path.join(doc_img_dir, img_name)
+                    with open(img_save_path, "wb") as f:
+                        f.write(img_part.blob)
+                    img_index += 1
+                except Exception as e:
+                    print(f"[DOCX Image Extract Warning] {e}")
+
     for p in doc.paragraphs:
         if p.text.strip():
             parts.append(p.text)
     for table in doc.tables:
         for row in table.rows:
-            parts.append(" | ".join(cell.text for cell in row.cells))
+            row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+            if row_text:
+                parts.append(row_text)
     return "\n".join(parts)
 
 
@@ -228,10 +273,6 @@ def _read_pptx(file_path: str) -> str:
 
 
 def _read_xlsx(file_path: str) -> str:
-    """Đọc thô toàn bộ nội dung 1 file Excel (mọi sheet), mỗi hàng nối các ô
-    lại bằng ' | ' — chỉ dùng để hiển thị 'văn bản gốc trích xuất' cho giáo
-    viên đối chiếu, KHÔNG dùng để tách câu hỏi (việc đó dùng
-    _extract_questions_from_xlsx, đọc trực tiếp từng ô để khỏi đoán bố cục)."""
     if not OPENPYXL_AVAILABLE:
         return ""
     try:
@@ -256,14 +297,6 @@ for _candidate in ("libreoffice", "soffice"):
 
 
 def _convert_office_to_pdf(file_path: str):
-    """Dùng LibreOffice (đã cài sẵn) chuyển thật .docx/.doc/.pptx/.ppt về PDF,
-    rồi tái sử dụng đúng bộ đọc bố cục PDF đã kiểm chứng (_extract_questions_from_pdf_layout)
-    cho MỌI định dạng — đây là cách "đưa mọi file về 1 định dạng gốc" theo đúng
-    yêu cầu: chỉ cần bảo trì 1 bộ máy tách câu hỏi duy nhất (bộ máy cho PDF),
-    thay vì nhiều bộ đọc riêng lẻ cho từng định dạng dễ lệch kết quả với nhau.
-    Trả về đường dẫn PDF nếu chuyển thành công, None nếu không có LibreOffice
-    hoặc quá trình chuyển đổi thất bại (khi đó nơi gọi sẽ tự chuyển sang cách
-    đọc dự phòng cho từng định dạng)."""
     if not LIBREOFFICE_BIN:
         return None
     try:
@@ -285,11 +318,6 @@ def _convert_office_to_pdf(file_path: str):
 
 
 def _looks_like_broken_font_rendering(text: str) -> bool:
-    """LibreOffice thỉnh thoảng render PDF bằng font thay thế thiếu bảng chữ
-    tiếng Việt, khiến dấu thanh tách rời thành từng dòng riêng lẻ (VD: 'ứ',
-    'ổ', 'ạ' đứng một mình 1 dòng) thay vì dính liền vào chữ cái. Phát hiện
-    trường hợp này để bỏ kết quả PDF vừa convert và dùng lại văn bản đọc
-    trực tiếp từ file gốc (luôn đúng vì không qua khâu render font)."""
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     if len(lines) < 8:
         return False
@@ -353,19 +381,19 @@ def _ocr_image_tesseract(image) -> str:
 def _pdf_has_real_text(text: str) -> bool:
     if not text or len(text.strip()) < 40:
         return False
-    question_hits = len(re.findall(r"(?m)^\s*(?:\d+\.\d+|\d+)\.\s+", text))
+    question_hits = len(re.findall(r"(?m)^\s*(?:Câu\s+\d+|\d+\.\d+|\d+)\.\s+", text, re.IGNORECASE))
     word_hits = len(re.findall(r"[A-Za-zÀ-ỹ]{3,}", text))
     return question_hits >= 1 or word_hits >= 20
 
 
-def extract_text_from_file(file_path: str) -> str:
+def extract_text_from_file(file_path: str, exam_id: int = None) -> str:
     ext = os.path.splitext(file_path)[1].lower()
 
     if ext == ".txt":
         return _read_txt(file_path)
 
     if ext == ".docx":
-        return _read_docx(file_path)
+        return _read_docx(file_path, exam_id=exam_id)
 
     if ext == ".pptx":
         return _read_pptx(file_path)
@@ -414,9 +442,8 @@ def extract_text_from_file(file_path: str) -> str:
 
 def _smart_join_fragments(parts) -> str:
     """Ghép các dòng bị bẻ (word-wrap) của một đáp án lại thành 1 chuỗi.
-    Nếu một dòng kết thúc bằng dấu gạch nối do bị ngắt giữa từ (VD:
-    '2-methylbut-2-' rồi xuống dòng tiếp 'ene'), nối liền không thêm khoảng
-    trắng để ra '2-methylbut-2-ene' thay vì '2-methylbut-2- ene'."""
+    Nếu một dòng kết thúc bằng dấu gạch nối do bị ngắt giữa từ, nối liền
+    không thêm khoảng trắng."""
     cleaned = [p.strip() for p in parts if p and p.strip()]
     if not cleaned:
         return ""
@@ -429,21 +456,23 @@ def _smart_join_fragments(parts) -> str:
     return re.sub(r"\s+", " ", result).strip()
 
 
-# Một chữ cái đáp án (A/B/C/D) phải được theo sau bởi khoảng trắng, dấu câu,
-# hoặc hết dòng — KHÔNG được theo sau bởi một chữ cái khác. Nhờ vậy các từ
-# tiếng Anh bắt đầu bằng A/B/C/D trong nội dung câu hỏi (VD: "Alcohol",
-# "Acetone", "Base", "Dung dịch") không bao giờ bị nhận nhầm là nhãn đáp án.
+# Chỉ nhận CHỮ HOA A/B/C/D làm nhãn phương án trắc nghiệm. Chữ thường a)/b)/
+# c)/d) (thường dùng để đánh dấu các ý đúng/sai trong 1 câu, hoặc các ý a),
+# b) của câu tự luận nhiều phần) KHÔNG được coi là phương án trắc nghiệm — nếu
+# không sẽ nhận nhầm câu "đúng/sai" hoặc câu tự luận nhiều ý thành trắc nghiệm.
 _OPTION_START_RE = re.compile(r"^(?:[\$]\s*)?([ABCD])(?![A-Za-zÀ-ỹ])[.\)~:]?\s*(.*)$")
+
+# Nhận diện đầu 1 câu hỏi: "Câu 1.", "Bài 2.", hoặc số trần "19.1." — dấu chấm
+# phải đứng NGAY sau số (không có khoảng trắng ở giữa) để không nhận nhầm 1
+# mảnh số bị tách rời (ví dụ mẫu số của phân số y=1/7 bị PDF tách thành block
+# riêng "7.") thành đầu 1 câu hỏi mới.
+_QUESTION_START_RE = re.compile(r"^\s*(?:C[âa]u\s+|Bài\s+)?(\d+(?:\.\d+)?)\.\s*(.*)$", re.IGNORECASE)
 
 
 def _parse_option_lines(text: str):
-    """Trích 4 đáp án A/B/C/D từ văn bản thô. Hỗ trợ mọi kiểu trình bày gặp
-    trong đề: mỗi đáp án 1 dòng riêng (dạng lý thuyết dài, 4 dòng), 2 đáp án
-    chung 1 dòng (dạng ngắn, gọn 2 bên), đáp án dài bị word-wrap qua nhiều
-    dòng, và trường hợp chữ cái đứng một mình trên 1 dòng còn nội dung xuống
-    dòng kế tiếp. Các dòng trông giống tiêu đề/chân trang lặp lại (VD:
-    'II. Bài tập tự luận' chen giữa do OCR/PDF bị lẫn trang) sẽ bị bỏ qua để
-    không lẫn vào nội dung đáp án cuối cùng."""
+    """Trích 4 đáp án A/B/C/D từ văn bản thô — hỗ trợ mọi kiểu trình bày:
+    mỗi đáp án 1 dòng riêng, 2 đáp án chung 1 dòng, đáp án dài bị word-wrap
+    qua nhiều dòng, chữ cái đứng 1 mình rồi nội dung xuống dòng sau."""
     options = []
     current_letter = None
     current_parts = []
@@ -471,146 +500,264 @@ def _parse_option_lines(text: str):
     return options
 
 
-def _extract_questions_from_blocks(pages_of_blocks):
-    """LÕI DÙNG CHUNG cho mọi định dạng file: nhận vào danh sách các 'trang',
-    mỗi trang là 1 danh sách các khối văn bản thô (block) theo đúng thứ tự
-    đọc, rồi trả về danh sách câu hỏi trắc nghiệm đã tách A/B/C/D. Đây là bộ
-    máy duy nhất xử lý việc nhận diện số câu, gom câu bị ngắt trang, và tách
-    đáp án — PDF, Word, PowerPoint, Excel, TXT đều gọi chung hàm này sau khi
-    được quy về cùng 1 dạng "danh sách block theo trang", nên mọi cải tiến
-    (lọc tiêu đề/chân trang, nối từ bị ngắt dòng, v.v.) tự động áp dụng cho
-    tất cả định dạng, không phải sửa riêng từng nơi.
-    """
-    questions = []
-    current = None
+def _looks_like_header_or_footer(text: str) -> bool:
+    """Nhận diện các dòng tiêu đề/chân trang/phân mục MANG TÍNH CẤU TRÚC
+    (số trang, gạch đầu dòng, "PHẦN I/II/III.", "I./II.", hotline, khẩu hiệu
+    trong ngoặc kép...) — cố tình KHÔNG dựa vào từ khóa riêng của 1 trường/1
+    môn cụ thể nào, để dùng chung được cho bất kỳ đề của bất kỳ môn/giáo viên
+    nào mà không cần chỉnh lại mỗi lần đổi mẫu đề."""
+    t = text.lower().strip()
+    if not t:
+        return True
 
-    def flush_current():
-        nonlocal current
-        if current is None:
-            return
+    if re.match(r"^[■•»›]", t):
+        return True
+    if re.match(r"^phần\s+[ivx]+\b", t):
+        return True
+    if re.match(r"^(?:i|ii|iii|iv|v)\.\s", t):
+        return True
+    if re.fullmatch(r"[-–—»\s]*\d+[-–—»\s]*", t):
+        return True
+    if re.search(r"\bhotline\b|\bsđt\b|\bđt\b\s*[:.]?\s*\d{7,}", t):
+        return True
+    # Khẩu hiệu/slogan chân trang thường để trong ngoặc kép nguyên 1 dòng
+    if re.match(r'^["“‘].*["”’]$', text.strip()):
+        return True
 
-        # Ghép toàn bộ các block đáp án (kể cả khi bị chia làm nhiều block do
-        # bố cục 2 cột, hoặc bị tràn/ngắt trang) thành 1 khối văn bản rồi bóc
-        # tách 1 lần duy nhất — nhờ vậy 1 đáp án bị ngắt giữa nhiều block vẫn
-        # được nối liền đúng thứ tự thay vì xử lý rời rạc từng block.
-        combined = "\n".join(current["option_blocks"])
-        parsed_options = {}
-        for letter, value in _parse_option_lines(combined):
-            if letter not in parsed_options or (value and not parsed_options[letter]):
-                parsed_options[letter] = value
+    return False
 
-        if all(k in parsed_options and parsed_options[k] for k in "ABCD"):
-            qtext = _join_wrapped_lines("\n".join(current["question_text"]))
-            questions.append({
-                "question_text": f"{current['number']}. {qtext}",
-                "option_a": parsed_options["A"],
-                "option_b": parsed_options["B"],
-                "option_c": parsed_options["C"],
-                "option_d": parsed_options["D"],
-                "correct_answer": None,
-                "source_page": current["page"],
-            })
 
-        current = None
+def _render_and_crop_drawings(page, exam_id, page_idx, doc_img_dir, top_ratio=0.08, bottom_ratio=0.93):
+    """Phát hiện đồ thị/bảng biến thiên được VẼ BẰNG NÉT VECTOR (không phải
+    ảnh bitmap nhúng sẵn) rồi crop thành PNG. Bỏ qua nét trang trí nhỏ (bullet,
+    ô vuông điền đáp án...) và mọi nét nằm trong vùng đầu/cuối trang (logo, số
+    trang, chân trang) — lọc theo VỊ TRÍ trên trang nên áp dụng được cho bất kỳ
+    mẫu đề nào, không phụ thuộc nội dung chữ cụ thể."""
+    extracted_imgs = []
+    try:
+        page_h = page.rect.height
+        paths = page.get_drawings()
+        if not paths:
+            return extracted_imgs
 
-    for page_number, page_blocks in enumerate(pages_of_blocks, start=1):
-        for text in page_blocks:
-            cleaned = _join_wrapped_lines(text)
-            lines = text.splitlines()
-            if not lines:
+        clusters = []
+        for path in paths:
+            r = path["rect"]
+            if r.width < 15 and r.height < 15:
+                continue
+            if r.y1 < page_h * top_ratio or r.y0 > page_h * bottom_ratio:
+                continue
+            if r.width > page.rect.width * 0.9:
                 continue
 
-            if _looks_like_header_or_footer(cleaned):
+            found = False
+            for c in clusters:
+                if (abs(r.y0 - c["y1"]) < 30 or abs(r.y1 - c["y0"]) < 30
+                        or (r.y0 >= c["y0"] - 5 and r.y1 <= c["y1"] + 5)):
+                    c["x0"] = min(c["x0"], r.x0)
+                    c["y0"] = min(c["y0"], r.y0)
+                    c["x1"] = max(c["x1"], r.x1)
+                    c["y1"] = max(c["y1"], r.y1)
+                    c["count"] += 1
+                    found = True
+                    break
+            if not found:
+                clusters.append({"x0": r.x0, "y0": r.y0, "x1": r.x1, "y1": r.y1, "count": 1})
+
+        for idx, c in enumerate(clusters):
+            w, h = c["x1"] - c["x0"], c["y1"] - c["y0"]
+            if w < 50 or h < 40 or w > page.rect.width * 0.95 or h > page.rect.height * 0.8:
                 continue
+            if c["count"] < 5:
+                continue  # cụm quá ít nét, khó là 1 hình vẽ thật
 
-            # Cho phép khớp cả dạng số thứ tự chuẩn (VD: 19.1 hoặc 1)
-            m = re.match(r"^\s*(\d+(?:\.\d+)?)\.\s*(.*)$", lines[0])
-            if m:
-                flush_current()
-                current = {
-                    "number": m.group(1),
-                    "question_text": [m.group(2)] + lines[1:],
-                    "option_blocks": [],
-                    "page": page_number,
-                }
-                continue
+            crop_rect = fitz.Rect(
+                max(0, c["x0"] - 10), max(0, c["y0"] - 10),
+                min(page.rect.width, c["x1"] + 10), min(page.rect.height, c["y1"] + 10),
+            )
+            pix = page.get_pixmap(clip=crop_rect, dpi=200)
+            image_filename = f"p{page_idx}_vector{idx + 1}_{uuid.uuid4().hex[:6]}.png"
+            image_save_path = os.path.join(doc_img_dir, image_filename)
+            pix.save(image_save_path)
+            web_url = f"/static/extracted_images/{exam_id}/{image_filename}"
+            extracted_imgs.append((c["y0"], c["y1"], web_url))
+    except Exception as e:
+        print(f"[Vector Crop Warning] {e}")
 
-            if current is None:
-                continue
-
-            # Một block chỉ thực sự là "khối đáp án" nếu có ít nhất 1 dòng bắt
-            # đầu bằng chữ cái A/B/C/D hợp lệ, HOẶC ta đã bắt đầu gom đáp án
-            # trước đó rồi (dòng tiếp theo của 1 đáp án dài bị wrap). Nếu chưa
-            # gặp đáp án nào và block này cũng không có, đây vẫn là phần thân
-            # câu hỏi bị tách sang block riêng (VD: "...nhiệt độ sôi" rồi "là:"
-            # xuống 1 block khác) — phải nối vào question_text, không được bỏ
-            # qua, nếu không phần đuôi câu hỏi sẽ bị mất.
-            has_option_marker = any(_OPTION_START_RE.match(_clean_extracted_line(ln)) for ln in lines)
-            if not current["option_blocks"] and not has_option_marker:
-                current["question_text"].extend(lines)
-            else:
-                current["option_blocks"].append(text)
-
-    flush_current()
-    return questions
+    return extracted_imgs
 
 
-def _extract_questions_from_pdf_layout(file_path: str):
+def _make_question_dict(number, qtext, question_type, options, page, image_urls):
+    return {
+        "question_text": f"Câu {number}. {qtext}",
+        "question_type": question_type,
+        "option_a": options.get("A", ""),
+        "option_b": options.get("B", ""),
+        "option_c": options.get("C", ""),
+        "option_d": options.get("D", ""),
+        "correct_answer": None,
+        "correct_answer_text": None,
+        "source_page": page,
+        "image_urls": json.dumps(image_urls),
+    }
+
+
+def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
     if not PDF_AVAILABLE:
         return []
 
     doc = fitz.open(file_path)
+    doc_img_dir = None
+    if exam_id:
+        doc_img_dir = os.path.join(EXTRACTED_IMAGES_DIR, str(exam_id))
+        os.makedirs(doc_img_dir, exist_ok=True)
 
-    # Đọc hết mọi block của mọi trang trước (thay vì xử lý xong-trang-nào-bỏ-
-    # trang-đó), để một câu hỏi bị ngắt giữa 2 trang (thân câu ở cuối trang
-    # này, đáp án ở đầu trang sau) vẫn được ghép liền mạch bên dưới.
-    # LƯU Ý: không dùng kiểu "block lặp lại ở >=2 trang thì coi là boilerplate"
-    # — nhiều đề trắc nghiệm có các bộ đáp án giống hệt nhau ở nhiều câu khác
-    # nhau (VD: "A but-1-ene B but-2-ene C but-1-yne D but-2-yne" lặp lại cho
-    # 2 câu hỏi khác nội dung), nên cách đó sẽ xóa nhầm đáp án thật.
-    pages_of_blocks = []
-    for page in doc:
-        blocks = page.get_text("blocks", sort=True)
-        pages_of_blocks.append([block[4] or "" for block in blocks])
+    # ---- Bước 1: đọc TOÀN BỘ block + ảnh của mọi trang trước (gắn số trang
+    # vào từng block/ảnh), thay vì xử lý xong-trang-nào-bỏ-trang-đó — để 1 câu
+    # hỏi bị tràn qua trang sau (VD: đề bài ở cuối trang này, bảng biến thiên/
+    # đồ thị nằm ở đầu trang kế tiếp) vẫn được ghép đúng và gán đúng ảnh.
+    all_kept_blocks = []   # (page_idx, text, x0, y0, y1)
+    all_page_images = []   # (page_idx, y0, y1, web_url)
+    margin_counter = {}
 
-    return _extract_questions_from_blocks(pages_of_blocks)
+    for page_idx, page in enumerate(doc, start=1):
+        page_h = page.rect.height
+        # Trang 1 thường có logo/tiêu đề lớn nên vùng "đầu trang" cần rộng hơn;
+        # các trang sau chỉ cần chừa chỗ cho tiêu đề/số trang lặp lại mỏng.
+        top_ratio = 0.20 if page_idx == 1 else 0.08
+        bottom_ratio = 0.93
 
+        raw_blocks = page.get_text("blocks", sort=True)
+        for b in raw_blocks:
+            x0, y0, x1, y1, text = b[0], b[1], b[2], b[3], (b[4] or "")
+            if not text.strip():
+                continue
+            # Lọc theo VỊ TRÍ (không theo nội dung) để loại logo/tiêu đề lặp/số
+            # trang/chân trang cho MỌI mẫu đề, không cần biết trước nó viết gì
+            if y1 < page_h * top_ratio or y0 > page_h * bottom_ratio:
+                continue
+            all_kept_blocks.append((page_idx, text, x0, y0, y1))
+            bucket = round(x0 / 4) * 4
+            margin_counter[bucket] = margin_counter.get(bucket, 0) + 1
 
-def _looks_like_header_or_footer(text: str) -> bool:
-    """Nhận diện tiêu đề/chân trang lặp lại và các dòng phân mục (I./II./■...)
-    để không bao giờ lẫn vào nội dung câu hỏi hay đáp án. So khớp không phân
-    biệt khoảng trắng vì PDF hay bị mất khoảng trắng giữa 2 từ có dấu (VD:
-    "tự luận" trích ra thành "tựluận") — nếu so khớp có khoảng trắng cứng thì
-    sẽ bỏ sót đúng những trường hợp hay gặp nhất."""
-    t = text.lower().strip()
-    if not t:
-        return True
-    t_nospace = re.sub(r"\s+", "", t)
+        if exam_id and doc_img_dir:
+            for img_index, img in enumerate(page.get_images(full=True)):
+                try:
+                    xref = img[0]
+                    img_rects = page.get_image_rects(xref)
+                    if not img_rects:
+                        continue
+                    r = img_rects[0]
+                    if r.width < 25 or r.height < 25:
+                        continue  # icon/hoạ tiết trang trí quá nhỏ
+                    if r.y1 < page_h * top_ratio or r.y0 > page_h * bottom_ratio:
+                        continue  # logo/hoạ tiết nằm trong vùng đầu/cuối trang
 
-    header_words = (
-        "hóa học", "chương", "ôn tập", "hệ thống bài tập", "mục tiêu",
-        "gv.", "mức độ", "trắc nghiệm khách quan", "bài tập tự luận",
-    )
-    for word in header_words:
-        if re.sub(r"\s+", "", word) in t_nospace:
+                    base_image = doc.extract_image(xref)
+                    image_bytes = base_image["image"]
+                    image_ext = base_image["ext"]
+                    image_filename = f"p{page_idx}_img{img_index + 1}_{uuid.uuid4().hex[:6]}.{image_ext}"
+                    image_save_path = os.path.join(doc_img_dir, image_filename)
+                    with open(image_save_path, "wb") as f:
+                        f.write(image_bytes)
+                    web_url = f"/static/extracted_images/{exam_id}/{image_filename}"
+                    all_page_images.append((page_idx, r.y0, r.y1, web_url))
+                except Exception as e:
+                    print(f"[PDF Image Extraction Warning] {e}")
+
+            for (iy0, iy1, url) in _render_and_crop_drawings(page, exam_id, page_idx, doc_img_dir, top_ratio, bottom_ratio):
+                all_page_images.append((page_idx, iy0, iy1, url))
+
+    # Mốc lề trái "chuẩn" của TOÀN VĂN BẢN = các giá trị x0 xuất hiện nhiều
+    # lần. Dùng để phân biệt 1 khối THỰC SỰ là đầu câu hỏi mới với 1 mảnh
+    # phân số (tử/mẫu) bị PDF tách thành block riêng nằm lệch hẳn giữa dòng
+    # (ví dụ "7." đứng một mình do công thức y = 1/7 bị tách làm 2 block).
+    common_margins = {x for x, cnt in margin_counter.items() if cnt >= 2}
+
+    def near_margin(x0):
+        if not common_margins:
             return True
+        bucket = round(x0 / 4) * 4
+        return any(abs(bucket - m) <= 12 for m in common_margins)
 
-    # Dòng phân mục kiểu "I. Trắc nghiệm...", "II. Bài tập...", hoặc gạch đầu
-    # dòng "■ Mức độ..."
-    if re.match(r"^[■•]", t):
-        return True
-    if re.match(r"^(?:i|ii|iii|iv|v)\.\s", t):
-        return True
+    # ---- Bước 2: tách câu hỏi XUYÊN SUỐT mọi trang (không reset theo trang) ----
+    q_blocks = []
+    current_q = None
+    for (page_idx, text, x0, y0, y1) in all_kept_blocks:
+        cleaned = _join_wrapped_lines(text)
+        if _looks_like_header_or_footer(cleaned):
+            continue
 
-    # Số trang đơn lẻ, có thể kẹp giữa dấu gạch ngang
-    if re.fullmatch(r"[-–—\s]*\d+[-–—\s]*", t):
-        return True
+        lines = text.splitlines()
+        if not lines:
+            continue
 
-    # Dòng chân trang kiểu số điện thoại giáo viên ("SĐT: 0979...")
-    if re.search(r"\bsđt\b|\bđt\b\s*[:.]?\s*\d{8,}", t):
-        return True
+        m = _QUESTION_START_RE.match(lines[0])
+        starts_like_option = lines[0].strip().startswith(("A.", "B.", "C.", "D.", "a)", "b)", "c)", "d)"))
+        is_new_question = bool(m) and near_margin(x0) and not starts_like_option
 
-    return False
+        if is_new_question:
+            if current_q:
+                q_blocks.append(current_q)
+            current_q = {
+                "number": m.group(1),
+                "start_page": page_idx,
+                "y0": y0,
+                "question_text_lines": [m.group(2)] if m.group(2).strip() else lines[1:],
+                "option_blocks": [],
+            }
+        elif current_q is not None:
+            has_option_marker = any(_OPTION_START_RE.match(_clean_extracted_line(ln)) for ln in lines)
+            if not current_q["option_blocks"] and not has_option_marker:
+                current_q["question_text_lines"].extend(lines)
+            else:
+                current_q["option_blocks"].append(text)
+        # else: nội dung trước câu hỏi đầu tiên của cả đề (tiêu đề, mục tiêu...)
+        # -> bỏ qua, không thuộc câu hỏi nào cả
+
+    if current_q:
+        q_blocks.append(current_q)
+
+    # ---- Bước 3: gán ảnh cho câu hỏi theo (trang, toạ độ Y) — hỗ trợ đúng cả
+    # câu bị tràn qua trang sau, rồi phân loại MCQ/tự luận ----
+    all_questions = []
+    for q_idx, q in enumerate(q_blocks):
+        if q_idx + 1 < len(q_blocks):
+            next_page, next_y0 = q_blocks[q_idx + 1]["start_page"], q_blocks[q_idx + 1]["y0"]
+        else:
+            next_page, next_y0 = 10 ** 9, 0
+
+        q_imgs = []
+        for (img_page, iy0, iy1, url) in all_page_images:
+            if img_page < q["start_page"]:
+                continue
+            if img_page == q["start_page"] and iy0 < q["y0"] - 15:
+                continue
+            if img_page > next_page:
+                continue
+            if img_page == next_page and iy0 >= next_y0:
+                continue
+            q_imgs.append(url)
+
+        combined_options = "\n".join(q["option_blocks"])
+        parsed_options = {}
+        for letter, value in _parse_option_lines(combined_options):
+            if letter not in parsed_options or (value and not parsed_options[letter]):
+                parsed_options[letter] = value
+
+        qtext = _join_wrapped_lines("\n".join(q["question_text_lines"]))
+        if not qtext:
+            continue
+
+        if all(k in parsed_options and parsed_options[k] for k in "ABCD"):
+            all_questions.append(_make_question_dict(q["number"], qtext, "mcq", parsed_options, q["start_page"], q_imgs))
+        elif not parsed_options:
+            # Câu tự luận: có số thứ tự, có ảnh/bảng biến thiên đính kèm (nếu
+            # có) nhưng không có 4 đáp án A/B/C/D đi kèm.
+            all_questions.append(_make_question_dict(q["number"], qtext, "essay", {}, q["start_page"], q_imgs))
+        # else: chỉ tìm thấy 1-3/4 đáp án -> khả năng cao là lỗi đọc, bỏ qua
+
+    return all_questions
 
 
 def _parse_questions_from_text_generic(raw_text: str):
@@ -620,8 +767,8 @@ def _parse_questions_from_text_generic(raw_text: str):
     lines = raw_text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     starts = []
     for i, line in enumerate(lines):
-        m = re.match(r"^\s*(\d+(?:\.\d+)?)\.\s*(.*)$", line)
-        if m:
+        m = _QUESTION_START_RE.match(line)
+        if m and not line.strip().startswith(("A.", "B.", "C.", "D.", "a)", "b)", "c)", "d)")):
             starts.append((i, m.group(1), m.group(2)))
 
     questions = []
@@ -633,7 +780,7 @@ def _parse_questions_from_text_generic(raw_text: str):
         seen_option = False
 
         for line in block[1:]:
-            if re.match(r"^\s*(?:[\$]\s*)?[ABCD]\b", line):
+            if _OPTION_START_RE.match(_clean_extracted_line(line)):
                 seen_option = True
             if seen_option:
                 option_source.append(line)
@@ -642,19 +789,17 @@ def _parse_questions_from_text_generic(raw_text: str):
 
         parsed_options = {}
         for letter, value in _parse_option_lines("\n".join(option_source)):
-            if letter not in parsed_options:
+            if letter not in parsed_options or (value and not parsed_options[letter]):
                 parsed_options[letter] = value
 
+        qtext = _join_wrapped_lines(" ".join(qtext_lines))
+        if not qtext:
+            continue
+
         if all(k in parsed_options and parsed_options[k] for k in "ABCD"):
-            questions.append({
-                "question_text": f"{number}. {_join_wrapped_lines(' '.join(qtext_lines))}",
-                "option_a": parsed_options["A"],
-                "option_b": parsed_options["B"],
-                "option_c": parsed_options["C"],
-                "option_d": parsed_options["D"],
-                "correct_answer": None,
-                "source_page": None,
-            })
+            questions.append(_make_question_dict(number, qtext, "mcq", parsed_options, None, []))
+        elif not parsed_options:
+            questions.append(_make_question_dict(number, qtext, "essay", {}, None, []))
 
     return questions
 
@@ -671,10 +816,6 @@ def _detect_answer_key(raw_text: str):
         for m in re.finditer(pattern, raw_text, flags=re.IGNORECASE):
             answers[m.group(1)] = m.group(2).upper()
 
-    # Nhiều đề có riêng 1 khối "ĐÁP ÁN" ở cuối trình bày dạng bảng gọn:
-    # "1.A 2.B 3.C ..." hoặc "1-A 2-B 3-C ...". Chỉ quét dạng gọn này BÊN
-    # TRONG khối đáp án (sau khi tìm thấy tiêu đề "đáp án") để không bao giờ
-    # đọc nhầm số thứ tự câu hỏi bình thường ở nơi khác thành đáp án.
     key_section = re.search(r"đáp\s*án|dap\s*an|answer\s*key", raw_text, flags=re.IGNORECASE)
     if key_section:
         tail = raw_text[key_section.end():]
@@ -685,16 +826,9 @@ def _detect_answer_key(raw_text: str):
 
 
 def _extract_questions_from_xlsx(file_path: str):
-    """Đọc câu hỏi/đáp án trực tiếp từ các ô Excel — không qua render/convert
-    gì cả, nên không có rủi ro sai layout như PDF. Hỗ trợ 2 kiểu bảng hay gặp:
-
-    1) Dạng bảng cột: mỗi hàng là 1 câu — cột 1 = nội dung câu hỏi, 4 cột kế
-       = đáp án A/B/C/D, cột thứ 6 (nếu có) = đáp án đúng (ghi sẵn chữ A/B/C/D).
-       Số thứ tự câu được đánh tự động theo thứ tự hàng nếu cột 1 chưa có số.
-    2) Dạng văn bản tự do dán vào 1 cột (giống hệt 1 trang tài liệu): mỗi ô là
-       1 dòng, được gom lại rồi đưa qua đúng lõi tách câu hỏi dùng chung
-       (_extract_questions_from_blocks) như mọi định dạng khác.
-    """
+    """Đọc câu hỏi/đáp án trực tiếp từ ô Excel. Hỗ trợ 2 kiểu:
+    1) Bảng cột: câu hỏi | A | B | C | D | (đáp án đúng) -> trắc nghiệm.
+    2) Chỉ có câu hỏi, không có 4 đáp án ở 4 ô kế tiếp -> tự luận."""
     if not OPENPYXL_AVAILABLE:
         return []
     try:
@@ -713,7 +847,6 @@ def _extract_questions_from_xlsx(file_path: str):
             if not non_empty:
                 continue
 
-            # Bỏ qua hàng tiêu đề kiểu "Câu hỏi | A | B | C | D | Đáp án"
             first_lower = non_empty[0].lower()
             if first_lower in {"câu hỏi", "cau hoi", "question", "stt", "số", "so", "câu", "no."}:
                 continue
@@ -723,12 +856,9 @@ def _extract_questions_from_xlsx(file_path: str):
             ):
                 continue
 
-            # Dạng bảng cột: có đủ câu hỏi + 4 đáp án ở 5 ô đầu (cho phép ô
-            # trống ở giữa lệch cột 1 chút nhưng về cơ bản đúng thứ tự)
-            filled = [c for c in cells[:6] if c]
             if len(cells) >= 5 and cells[0] and cells[1] and cells[2] and cells[3] and cells[4]:
                 auto_number += 1
-                m = re.match(r"^\s*(\d+(?:\.\d+)?)\.\s*(.*)$", cells[0])
+                m = _QUESTION_START_RE.match(cells[0])
                 if m:
                     q_number, q_text = m.group(1), m.group(2)
                 else:
@@ -736,58 +866,40 @@ def _extract_questions_from_xlsx(file_path: str):
 
                 correct = None
                 if len(cells) >= 6 and cells[5]:
-                    letter_match = re.match(r"^\s*([ABCDabcd])\b", cells[5])
+                    letter_match = re.match(r"^\s*([ABCD])\b", cells[5], re.IGNORECASE)
                     if letter_match:
                         correct = letter_match.group(1).upper()
 
                 questions.append({
-                    "question_text": f"{q_number}. {q_text}",
-                    "option_a": cells[1],
-                    "option_b": cells[2],
-                    "option_c": cells[3],
-                    "option_d": cells[4],
+                    "question_text": f"Câu {q_number}. {q_text}",
+                    "question_type": "mcq",
+                    "option_a": cells[1], "option_b": cells[2],
+                    "option_c": cells[3], "option_d": cells[4],
                     "correct_answer": correct,
+                    "correct_answer_text": None,
                     "source_page": ws.title,
+                    "image_urls": "[]",
                 })
+            elif cells[0] and not any((cells[i] if len(cells) > i else "") for i in range(1, 5)):
+                auto_number += 1
+                m = _QUESTION_START_RE.match(cells[0])
+                if m:
+                    q_number, q_text = m.group(1), m.group(2)
+                else:
+                    q_number, q_text = str(auto_number), cells[0]
+                questions.append(_make_question_dict(q_number, q_text, "essay", {}, ws.title, []))
             else:
-                # Không đúng hình dạng bảng cột -> gom vào văn bản tự do,
-                # mỗi ô có nội dung thành 1 dòng riêng
                 free_text_blocks.extend(non_empty)
 
-    if questions:
-        return questions
-
-    if free_text_blocks:
-        return _extract_questions_from_blocks([free_text_blocks])
-
-    return []
+    free_text_questions = _parse_questions_from_text_generic("\n".join(free_text_blocks)) if free_text_blocks else []
+    return questions + free_text_questions
 
 
-def extract_questions_universal(file_path: str):
-    """HÀM PIPELINE DUY NHẤT xử lý câu hỏi/đáp án cho MỌI định dạng file đề
-    thi: .pdf, .docx/.doc, .pptx/.ppt, .xlsx/.xls, .txt, và ảnh chụp.
-
-    Ý tưởng: thay vì duy trì nhiều bộ tách câu hỏi khác nhau (mỗi định dạng 1
-    kiểu, dễ lệch kết quả), MỌI định dạng được quy về cùng 1 dạng cơ sở rồi
-    chạy qua ĐÚNG MỘT bộ máy tách câu hỏi đã kiểm chứng kỹ (dùng cho PDF ở
-    trên):
-      - Word / PowerPoint: chuyển THẬT sang PDF bằng LibreOffice (giữ đúng bố
-        cục hiển thị — cột, canh lề, ngắt dòng...) rồi đọc như 1 file PDF.
-      - Excel: đọc trực tiếp từng ô (đáng tin hơn convert sang PDF vì bảng
-        tính dễ vỡ layout khi render).
-      - TXT: mỗi dòng không rỗng được coi là 1 "khối" rồi đưa thẳng vào lõi
-        tách câu hỏi dùng chung, y hệt cách PDF/Word xử lý từng khối.
-      - Ảnh chụp: vẫn phải OCR ra chữ trước (không có bố cục đáng tin để tách
-        theo khối), sau đó dùng bộ phân tích văn bản tổng quát.
-
-    Nếu một nhánh xử lý thất bại hoặc không tách được câu nào, hàm sẽ tự động
-    lùi về cách đọc dự phòng an toàn hơn cho định dạng đó — không bao giờ để
-    trống hoàn toàn nếu vẫn còn cách khác để thử.
-    """
+def extract_questions_universal(file_path: str, exam_id: int = None):
     ext = os.path.splitext(file_path)[1].lower()
 
     if ext == ".pdf":
-        return _extract_questions_from_pdf_layout(file_path) if PDF_AVAILABLE else []
+        return _extract_questions_from_pdf_layout(file_path, exam_id=exam_id) if PDF_AVAILABLE else []
 
     if ext in {".docx", ".doc", ".pptx", ".ppt"}:
         pdf_path = _convert_office_to_pdf(file_path)
@@ -796,12 +908,10 @@ def extract_questions_universal(file_path: str):
                 p.get_text("text", sort=True) for p in fitz.open(pdf_path)
             )
             if not _looks_like_broken_font_rendering(doc_pdf_text):
-                questions = _extract_questions_from_pdf_layout(pdf_path)
+                questions = _extract_questions_from_pdf_layout(pdf_path, exam_id=exam_id)
                 if questions:
                     return questions
-        # Dự phòng: đọc trực tiếp văn bản từ file gốc (luôn đúng ký tự vì
-        # không qua khâu render font) rồi dùng bộ phân tích tổng quát
-        raw = _read_docx(file_path) if ext in (".docx", ".doc") else _read_pptx(file_path)
+        raw = _read_docx(file_path, exam_id=exam_id) if ext in (".docx", ".doc") else _read_pptx(file_path)
         return _parse_questions_from_text_generic(raw) if raw else []
 
     if ext in {".xlsx", ".xls"}:
@@ -809,21 +919,16 @@ def extract_questions_universal(file_path: str):
 
     if ext == ".txt":
         raw = _read_txt(file_path)
-        lines = [ln for ln in raw.splitlines() if ln.strip()]
-        questions = _extract_questions_from_blocks([lines]) if lines else []
-        if questions:
-            return questions
         return _parse_questions_from_text_generic(raw) if raw else []
 
-    # Ảnh chụp / định dạng còn lại: OCR ra chữ rồi phân tích tổng quát
-    raw = extract_text_from_file(file_path)
+    raw = extract_text_from_file(file_path, exam_id=exam_id)
     return _parse_questions_from_text_generic(raw) if raw else []
 
 
-def parse_questions_pipeline(raw_text: str, file_path: str = None):
+def parse_questions_pipeline(raw_text: str, file_path: str = None, exam_id: int = None):
     questions = []
     if file_path:
-        questions = extract_questions_universal(file_path)
+        questions = extract_questions_universal(file_path, exam_id=exam_id)
 
     if not questions and raw_text and raw_text.strip():
         questions = _parse_questions_from_text_generic(raw_text)
@@ -835,7 +940,7 @@ def parse_questions_pipeline(raw_text: str, file_path: str = None):
     for q in questions:
         if q.get("correct_answer"):
             continue
-        number_match = re.match(r"^(\d+(?:\.\d+)?)\.", q["question_text"])
+        number_match = re.search(r"(\d+(?:\.\d+)?)", q["question_text"])
         number = number_match.group(1) if number_match else None
         q["correct_answer"] = explicit_answers.get(number)
 
@@ -848,6 +953,56 @@ def parse_questions_from_text_regex(raw_text: str):
 # --------------------------------------------------------------------------
 # Randomizer & Grading
 # --------------------------------------------------------------------------
+
+_GRADE_SUFFIX_RE = re.compile(r"(10|11|12)\s*$")
+
+
+def _parse_subject_grade(subject_text):
+    """Tách chuỗi giáo viên nhập theo cú pháp 'Môn Lớp' (VD: 'Toán 12',
+    'Hóa 10', 'Lí 11') thành (tên môn, lớp). Không phụ thuộc danh sách môn cố
+    định — bất kỳ tên môn nào có số lớp 10/11/12 ở cuối đều tách được, để
+    dùng chung cho mọi môn học, không riêng Toán/Lý/Hóa/Văn."""
+    if not subject_text:
+        return (None, None)
+    text = subject_text.strip()
+    m = _GRADE_SUFFIX_RE.search(text)
+    if m:
+        grade = m.group(1)
+        name = text[:m.start()].strip()
+        return (name or text, grade)
+    return (text, None)
+
+
+def _group_items_by_subject_grade(items):
+    """Gom danh sách (đề thi/tài liệu) có trường 'subject' dạng 'Môn Lớp'
+    thành cấu trúc lồng: mỗi môn -> các lớp -> danh sách item. Item không có
+    môn/lớp rõ ràng được gom vào nhóm 'Khác' để không bị mất."""
+    groups = {}
+    order = []
+    for it in items:
+        subj_raw = it["subject"] if "subject" in it.keys() else None
+        name, grade = _parse_subject_grade(subj_raw)
+        if not name:
+            name, grade = "Khác", None
+        if name not in groups:
+            groups[name] = {"name": name, "grades": {}}
+            order.append(name)
+        grade_key = grade or "Khác"
+        groups[name]["grades"].setdefault(grade_key, []).append(it)
+
+    result = []
+    for name in order:
+        g = groups[name]
+        grade_keys = sorted(g["grades"].keys(), key=lambda x: (x == "Khác", x))
+        result.append({
+            "name": name,
+            "count": sum(len(v) for v in g["grades"].values()),
+            "grades": [{"grade": gk, "items": g["grades"][gk]} for gk in grade_keys],
+        })
+
+    result.sort(key=lambda g: (g["name"] == "Khác", g["name"]))
+    return result
+
 
 def seeded_random(exam_id: int, student_code: str) -> random.Random:
     key = f"{exam_id}:{student_code.strip().lower()}".encode("utf-8")
@@ -876,6 +1031,8 @@ def generate_test(exam_id: int, student_name: str, student_code: str, num_questi
     for q in all_questions:
         if q["id"] not in q_ids:
             continue
+        if q["question_type"] == "essay":
+            continue  # câu tự luận không có 4 phương án để xáo trộn
         letters = ["A", "B", "C", "D"]
         if RANDOMIZE_EXAM:
             shuffled = letters[:]
@@ -900,6 +1057,20 @@ def generate_test(exam_id: int, student_name: str, student_code: str, num_questi
     return cur.lastrowid
 
 
+def _normalize_answer_text(s: str) -> str:
+    """Chuẩn hoá đáp án tự luận trước khi so khớp: bỏ khoảng trắng thừa, viết
+    thường, gộp dấu trừ Unicode (−) về dấu gạch ngang thường (-), bỏ dấu chấm
+    cuối câu — để 'trùng khớp' không đòi hỏi gõ chính xác từng ký tự/hoa
+    thường như đáp án gốc."""
+    if s is None:
+        return ""
+    s = s.strip().lower()
+    s = s.replace("−", "-").replace("–", "-")
+    s = re.sub(r"\s+", " ", s)
+    s = s.rstrip(".")
+    return s.strip()
+
+
 def grade_submission(test_row, answers: dict):
     db = get_db()
     q_ids = json.loads(test_row["question_order"])
@@ -914,8 +1085,34 @@ def grade_submission(test_row, answers: dict):
 
     results = []
     score = 0
+    total_gradable = 0
     for qid in q_ids:
         q = questions[qid]
+
+        if q["question_type"] == "essay":
+            student_answer = (answers.get(str(qid)) or "").strip()
+            has_key = bool(q["correct_answer_text"] and q["correct_answer_text"].strip())
+            is_correct = None
+            if has_key:
+                total_gradable += 1
+                is_correct = _normalize_answer_text(student_answer) == _normalize_answer_text(q["correct_answer_text"])
+                if is_correct:
+                    score += 1
+            results.append({
+                "question_text": q["question_text"],
+                "question_type": "essay",
+                "essay_answer": student_answer,
+                "correct_answer_text": q["correct_answer_text"],
+                "has_key": has_key,
+                "options": {},
+                "chosen": None,
+                "correct_display": None,
+                "is_correct": is_correct,
+                "image_urls": q["image_urls"],
+            })
+            continue
+
+        total_gradable += 1
         display_map = option_maps[str(qid)]
         chosen_display = answers.get(str(qid))
         chosen_original = display_map.get(chosen_display) if chosen_display else None
@@ -932,18 +1129,20 @@ def grade_submission(test_row, answers: dict):
         results.append(
             {
                 "question_text": q["question_text"],
+                "question_type": "mcq",
                 "options": displayed_options,
                 "chosen": chosen_display,
                 "correct_display": correct_display,
                 "is_correct": is_correct,
+                "image_urls": q["image_urls"],
             }
         )
 
-    return score, len(q_ids), results
+    return score, total_gradable, results
 
 
 # --------------------------------------------------------------------------
-# Pipeline Step 5 & 6: Database & Web Routes (Học sinh & Admin)
+# Web Routes
 # --------------------------------------------------------------------------
 
 @app.route("/")
@@ -955,9 +1154,10 @@ def home():
     today = date.today().isoformat()
     today_exams = [e for e in exams if not e["available_date"] or e["available_date"] <= today]
     upcoming_exams = [e for e in exams if e["available_date"] and e["available_date"] > today]
+    subject_groups = _group_items_by_subject_grade(today_exams)
     return render_template(
         "home.html", center_name=CENTER_NAME, today_exams=today_exams, upcoming_exams=upcoming_exams,
-        active="kiemtra",
+        subject_groups=subject_groups, active="kiemtra",
     )
 
 
@@ -1019,11 +1219,24 @@ def take_test(test_id):
     ordered_questions = []
     for idx, qid in enumerate(q_ids, start=1):
         q = questions[qid]
+        if q["question_type"] == "essay":
+            ordered_questions.append({
+                "index": idx, "id": qid, "question_text": q["question_text"],
+                "question_type": "essay", "options": [], "image_urls": q["image_urls"],
+            })
+            continue
         display_map = option_maps[str(qid)]
         orig_texts = {"A": q["option_a"], "B": q["option_b"], "C": q["option_c"], "D": q["option_d"]}
         displayed = [(letter, orig_texts[orig]) for letter, orig in sorted(display_map.items())]
         ordered_questions.append(
-            {"index": idx, "id": qid, "question_text": q["question_text"], "options": displayed}
+            {
+                "index": idx, 
+                "id": qid, 
+                "question_text": q["question_text"], 
+                "question_type": "mcq",
+                "options": displayed,
+                "image_urls": q["image_urls"]
+            }
         )
 
     return render_template(
@@ -1092,10 +1305,6 @@ def result(submission_id):
     )
 
 
-# --------------------------------------------------------------------------
-# ROUTE XÁC THỰC MẬT KHẨU GIÁO VIÊN
-# --------------------------------------------------------------------------
-
 @app.route("/verify-teacher-password", methods=["POST"])
 def verify_teacher_pass():
     password_input = request.form.get("teacher_password", "")
@@ -1154,31 +1363,37 @@ def admin_upload():
     saved_path = os.path.join(UPLOAD_DIR, saved_name)
     file.save(saved_path)
 
-    raw_text = extract_text_from_file(saved_path)
-    parsed = parse_questions_pipeline(raw_text, saved_path) if raw_text else []
-
     db = get_db()
     cur = db.execute(
         "INSERT INTO exams (title, subject, source_image, raw_ocr_text, status, available_date, "
-        "time_limit_minutes, created_at) VALUES (?, ?, ?, ?, 'draft', ?, ?, ?)",
-        (title, subject, saved_name, raw_text, available_date, time_limit_minutes,
+        "time_limit_minutes, created_at) VALUES (?, ?, ?, '', 'draft', ?, ?, ?)",
+        (title, subject, saved_name, available_date, time_limit_minutes,
          datetime.now().isoformat(timespec="seconds")),
     )
     exam_id = cur.lastrowid
 
+    raw_text = extract_text_from_file(saved_path, exam_id=exam_id)
+    db.execute("UPDATE exams SET raw_ocr_text = ? WHERE id = ?", (raw_text, exam_id))
+
+    parsed = parse_questions_pipeline(raw_text, saved_path, exam_id=exam_id) if raw_text else []
+
     for idx, q in enumerate(parsed):
         db.execute(
-            "INSERT INTO questions (exam_id, order_index, question_text, option_a, option_b, option_c, "
-            "option_d, correct_answer) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO questions (exam_id, order_index, question_text, question_type, option_a, "
+            "option_b, option_c, option_d, correct_answer, correct_answer_text, image_urls) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                exam_id, idx, q["question_text"], q["option_a"], q["option_b"], q["option_c"], q["option_d"],
-                q["correct_answer"],
+                exam_id, idx, q["question_text"], q.get("question_type", "mcq"),
+                q["option_a"], q["option_b"], q["option_c"], q["option_d"],
+                q["correct_answer"], q.get("correct_answer_text"), q.get("image_urls", "[]"),
             ),
         )
     db.commit()
 
+    n_essay = sum(1 for q in parsed if q.get("question_type") == "essay")
     if parsed:
-        flash(f"Hệ thống đã tự động trích xuất thành công {len(parsed)} câu hỏi từ tệp {filename}!")
+        extra = f" (trong đó {n_essay} câu tự luận)" if n_essay else ""
+        flash(f"Hệ thống đã tự động trích xuất thành công {len(parsed)} câu hỏi từ tệp {filename}!{extra}")
     else:
         flash("Không thể tự động nhận diện câu hỏi từ tệp này. Bạn có thể thêm câu hỏi thủ công ở trang bên dưới.")
 
@@ -1239,16 +1454,42 @@ def admin_update_time_limit(exam_id):
 @app.route("/admin/exam/<int:exam_id>/add_question", methods=["POST"])
 def admin_add_question(exam_id):
     db = get_db()
+    q_type = request.form.get("question_type", "mcq")
+    if q_type not in ("mcq", "essay"):
+        q_type = "mcq"
     max_idx = db.execute(
         "SELECT COALESCE(MAX(order_index), -1) m FROM questions WHERE exam_id=?", (exam_id,)
     ).fetchone()["m"]
+    default_correct = "A" if q_type == "mcq" else None
     db.execute(
-        "INSERT INTO questions (exam_id, order_index, question_text, option_a, option_b, option_c, "
-        "option_d, correct_answer) VALUES (?, ?, '', '', '', '', '', 'A')",
-        (exam_id, max_idx + 1),
+        "INSERT INTO questions (exam_id, order_index, question_text, question_type, option_a, "
+        "option_b, option_c, option_d, correct_answer, correct_answer_text, image_urls) "
+        "VALUES (?, ?, '', ?, '', '', '', '', ?, NULL, '[]')",
+        (exam_id, max_idx + 1, q_type, default_correct),
     )
     db.commit()
     return redirect(url_for("admin_edit_exam", exam_id=exam_id))
+
+
+@app.route("/admin/question/<int:question_id>/toggle_type", methods=["POST"])
+def admin_toggle_question_type(question_id):
+    db = get_db()
+    q = db.execute("SELECT * FROM questions WHERE id=?", (question_id,)).fetchone()
+    if not q:
+        abort(404)
+    new_type = "essay" if q["question_type"] == "mcq" else "mcq"
+    if new_type == "mcq":
+        db.execute(
+            "UPDATE questions SET question_type=?, correct_answer=COALESCE(correct_answer, 'A') WHERE id=?",
+            (new_type, question_id),
+        )
+    else:
+        db.execute(
+            "UPDATE questions SET question_type=?, correct_answer=NULL WHERE id=?",
+            (new_type, question_id),
+        )
+    db.commit()
+    return redirect(url_for("admin_edit_exam", exam_id=q["exam_id"]))
 
 
 @app.route("/admin/question/<int:question_id>/update", methods=["POST"])
@@ -1258,9 +1499,10 @@ def admin_update_question(question_id):
     if not q:
         abort(404)
     correct = request.form.get("correct_answer", "").strip().upper() or None
+    correct_text = request.form.get("correct_answer_text", "").strip() or None
     db.execute(
         "UPDATE questions SET question_text=?, option_a=?, option_b=?, option_c=?, option_d=?, "
-        "correct_answer=? WHERE id=?",
+        "correct_answer=?, correct_answer_text=? WHERE id=?",
         (
             request.form.get("question_text", "").strip(),
             request.form.get("option_a", "").strip(),
@@ -1268,6 +1510,7 @@ def admin_update_question(question_id):
             request.form.get("option_c", "").strip(),
             request.form.get("option_d", "").strip(),
             correct,
+            correct_text,
             question_id,
         ),
     )
@@ -1279,7 +1522,7 @@ def admin_update_question(question_id):
 def admin_save_all_questions(exam_id):
     db = get_db()
     question_ids = request.form.getlist("question_ids")
-    
+
     for qid in question_ids:
         q_text = request.form.get(f"question_text_{qid}", "").strip()
         opt_a = request.form.get(f"option_a_{qid}", "").strip()
@@ -1287,16 +1530,18 @@ def admin_save_all_questions(exam_id):
         opt_c = request.form.get(f"option_c_{qid}", "").strip()
         opt_d = request.form.get(f"option_d_{qid}", "").strip()
         correct = request.form.get(f"correct_answer_{qid}", "").strip().upper() or None
-        
+        correct_text = request.form.get(f"correct_answer_text_{qid}", "").strip() or None
+
         db.execute(
             """
-            UPDATE questions 
-            SET question_text=?, option_a=?, option_b=?, option_c=?, option_d=?, correct_answer=? 
+            UPDATE questions
+            SET question_text=?, option_a=?, option_b=?, option_c=?, option_d=?,
+                correct_answer=?, correct_answer_text=?
             WHERE id=? AND exam_id=?
             """,
-            (q_text, opt_a, opt_b, opt_c, opt_d, correct, qid, exam_id)
+            (q_text, opt_a, opt_b, opt_c, opt_d, correct, correct_text, qid, exam_id)
         )
-        
+
     db.commit()
     flash(f"Đã lưu thành công toàn bộ {len(question_ids)} câu hỏi!")
     return redirect(url_for("admin_edit_exam", exam_id=exam_id))
@@ -1310,6 +1555,38 @@ def admin_delete_question(question_id):
         abort(404)
     db.execute("DELETE FROM questions WHERE id=?", (question_id,))
     db.commit()
+    return redirect(url_for("admin_edit_exam", exam_id=q["exam_id"]))
+
+@app.route("/admin/question/<int:question_id>/delete_image", methods=["POST"])
+def admin_delete_question_image(question_id):
+    db = get_db()
+    q = db.execute("SELECT * FROM questions WHERE id=?", (question_id,)).fetchone()
+    if not q:
+        abort(404)
+        
+    image_url_to_delete = request.form.get("image_url", "").strip()
+    if image_url_to_delete and q["image_urls"]:
+        try:
+            current_images = json.loads(q["image_urls"])
+            # Lọc bỏ ảnh mà user chọn xóa
+            updated_images = [img for img in current_images if img != image_url_to_delete]
+            
+            # Cập nhật lại danh sách ảnh vào Database
+            db.execute("UPDATE questions SET image_urls=? WHERE id=?", (json.dumps(updated_images), question_id))
+            db.commit()
+            
+            # (Tùy chọn) Xóa file thực tế trên ổ đĩa nếu là file tĩnh cục bộ
+            clean_rel_path = image_url_to_delete.lstrip("/")
+            file_disk_path = os.path.join(BASE_DIR, clean_rel_path)
+            if os.path.exists(file_disk_path):
+                try:
+                    os.remove(file_disk_path)
+                except OSError:
+                    pass
+            flash("Đã xóa hình ảnh thành công!")
+        except Exception as e:
+            print(f"[Delete Image Error] {e}")
+            
     return redirect(url_for("admin_edit_exam", exam_id=q["exam_id"]))
 
 
@@ -1368,8 +1645,9 @@ def admin_documents():
 def public_documents():
     db = get_db()
     docs = db.execute("SELECT * FROM documents ORDER BY uploaded_at DESC").fetchall()
+    subject_groups = _group_items_by_subject_grade(docs)
     return render_template(
-        "documents.html", center_name=CENTER_NAME, docs=docs, active="tailieu",
+        "documents.html", center_name=CENTER_NAME, docs=docs, subject_groups=subject_groups, active="tailieu",
     )
 
 
@@ -1426,6 +1704,7 @@ def info_page():
         active="thongtin"
     )
 
+
 @app.route("/info/submission/<int:submission_id>/delete", methods=["POST"])
 def delete_submission(submission_id):
     db = get_db()
@@ -1445,6 +1724,8 @@ def admin_documents_upload():
         flash("Vui lòng chọn tệp tài liệu.")
         return redirect(url_for("admin_documents"))
 
+    subject = request.form.get("subject", "").strip() or None
+
     filename = secure_filename(file.filename)
     stamp = datetime.now().strftime("%Y%m%d%H%M%S")
     saved_name = f"{stamp}_{filename}"
@@ -1452,8 +1733,8 @@ def admin_documents_upload():
 
     db = get_db()
     db.execute(
-        "INSERT INTO documents (original_filename, stored_filename, uploaded_at) VALUES (?, ?, ?)",
-        (filename, saved_name, datetime.now().isoformat(timespec="seconds")),
+        "INSERT INTO documents (original_filename, stored_filename, subject, uploaded_at) VALUES (?, ?, ?, ?)",
+        (filename, saved_name, subject, datetime.now().isoformat(timespec="seconds")),
     )
     db.commit()
     return redirect(url_for("admin_documents"))
