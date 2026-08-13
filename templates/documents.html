@@ -1,21 +1,243 @@
 {% extends "base.html" %}
 {% block content %}
-  <div class="section-label">Tài liệu</div>
-  <div class="board">
-    {% if docs %}
-      <table class="admin-table">
-        <thead><tr><th>Tên tệp</th><th>Ngày đăng</th></tr></thead>
-        <tbody>
-          {% for d in docs %}
-            <tr>
-              <td><a href="{{ url_for('serve_document', filename=d['stored_filename']) }}">{{ d['original_filename'] }}</a></td>
-              <td>{{ d['uploaded_at'] }}</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% else %}
-      <div class="empty-note">Chưa có tài liệu nào được đăng.</div>
-    {% endif %}
+
+<style>
+  .tabs-panel { margin-bottom: 1.6rem; }
+
+  .subject-tabs {
+    display: flex;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.4rem;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+  .subject-tabs::-webkit-scrollbar { height: 5px; }
+  .subject-tabs::-webkit-scrollbar-thumb { background: var(--paper-line); border-radius: 4px; }
+
+  .subject-tab {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: #ffffff;
+    border: 1px solid var(--paper-line);
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 0.92rem;
+    padding: 0.5rem 1rem;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    white-space: nowrap;
+  }
+  .subject-tab:hover {
+    border-color: var(--header-red);
+    color: var(--header-red-dark);
+    transform: translateY(-1px);
+  }
+  .subject-tab.active {
+    background: linear-gradient(135deg, #b91c1c 0%, #dc2626 50%, #ef4444 100%);
+    border-color: transparent;
+    color: #ffffff;
+    box-shadow: 0 4px 14px rgba(220, 38, 38, 0.3);
+    transform: translateY(-1px);
+  }
+  .subject-tab .tab-count {
+    font-size: 0.72rem;
+    font-weight: 700;
+    background: rgba(0, 0, 0, 0.08);
+    padding: 0.05rem 0.42rem;
+    border-radius: 999px;
+    line-height: 1.4;
+  }
+  .subject-tab.active .tab-count { background: rgba(255, 255, 255, 0.28); }
+
+  .grade-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.7rem;
+    max-height: 500px;
+    opacity: 1;
+    transition: max-height 0.3s ease, opacity 0.25s ease, margin-top 0.3s ease;
+    overflow: hidden;
+  }
+  .grade-tabs.collapsed { max-height: 0; opacity: 0; margin-top: 0; }
+
+  .grade-tab {
+    flex: 0 0 auto;
+    background: #f7f7f5;
+    border: 1px solid var(--paper-line);
+    color: var(--ink-soft);
+    font-weight: 600;
+    font-size: 0.82rem;
+    padding: 0.34rem 0.85rem;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+  }
+  .grade-tab:hover { border-color: var(--header-red); color: var(--header-red-dark); }
+  .grade-tab.active { background: var(--header-red); border-color: var(--header-red); color: #ffffff; }
+
+  .doc-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    background: #ffffff;
+    border: 1px solid var(--paper-line);
+    border-left: 5px solid var(--header-red);
+    border-radius: var(--card-radius);
+    padding: 0.9rem 1.1rem;
+    text-decoration: none;
+    color: var(--ink);
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+  }
+  .doc-card:hover { transform: translateX(2px); box-shadow: 2px 2px 0 var(--paper-line); }
+  .doc-card .doc-name { font-weight: 700; font-size: 1rem; }
+  .doc-card .doc-meta { font-size: 0.8rem; color: var(--ink-soft); margin-top: 0.15rem; }
+  .doc-card .doc-subject {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--board-green);
+    background: #eaf4ee;
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    margin-bottom: 0.35rem;
+  }
+
+  .doc-group {
+    display: none;
+    flex-direction: column;
+    gap: 0.7rem;
+    animation: docGroupFadeIn 0.28s ease;
+  }
+  .doc-group.visible { display: flex; }
+  @keyframes docGroupFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  #doc-empty-note { display: none; }
+</style>
+
+<div class="section-label">Tài liệu</div>
+
+{% if docs %}
+  <div class="tabs-panel">
+    <div class="subject-tabs" id="subject-tabs">
+      <button type="button" class="subject-tab active" data-subject="__all__" data-grades="[]">
+        Tất cả <span class="tab-count">{{ docs|length }}</span>
+      </button>
+      {% for g in subject_groups %}
+        <button type="button" class="subject-tab" data-subject="{{ g.name }}"
+                data-grades='{{ g.grades|map(attribute="grade")|list|tojson }}'>
+          {{ g.name }} <span class="tab-count">{{ g.count }}</span>
+        </button>
+      {% endfor %}
+    </div>
+    <div class="grade-tabs collapsed" id="grade-tabs"></div>
   </div>
+
+  <div id="doc-groups">
+    {% for g in subject_groups %}
+      {% for gr in g.grades %}
+        <div class="doc-group visible" data-subject="{{ g.name }}" data-grade="{{ gr.grade }}">
+          {% for d in gr['items'] %}
+            <a class="doc-card" href="{{ url_for('serve_document', filename=d['stored_filename']) }}">
+              <div>
+                {% if d['subject'] %}<span class="doc-subject">{{ d['subject'] }}</span><br>{% endif %}
+                <span class="doc-name">{{ d['original_filename'] }}</span>
+                <div class="doc-meta">Đăng lúc {{ d['uploaded_at'] }}</div>
+              </div>
+            </a>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    {% endfor %}
+  </div>
+  <div class="board empty-note" id="doc-empty-note">Không có tài liệu nào phù hợp với lựa chọn của bạn.</div>
+{% else %}
+  <div class="board empty-note">Chưa có tài liệu nào được đăng.</div>
+{% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var subjectTabs = document.querySelectorAll('#subject-tabs .subject-tab');
+  var gradeTabsWrap = document.getElementById('grade-tabs');
+  var docGroups = document.querySelectorAll('#doc-groups .doc-group');
+  var emptyNote = document.getElementById('doc-empty-note');
+
+  var gradeLabel = function (g) {
+    if (g === 'Khác' || !g) return 'Khác';
+    return 'Lớp ' + g;
+  };
+
+  function applyFilter(subject, grade) {
+    var anyVisible = false;
+    docGroups.forEach(function (el) {
+      var matchSubject = (subject === '__all__') || (el.getAttribute('data-subject') === subject);
+      var matchGrade = (!grade || grade === '__all__') || (el.getAttribute('data-grade') === grade);
+      if (matchSubject && matchGrade) {
+        el.classList.add('visible');
+        anyVisible = true;
+      } else {
+        el.classList.remove('visible');
+      }
+    });
+    if (emptyNote) emptyNote.style.display = anyVisible ? 'none' : 'block';
+  }
+
+  function buildGradeTabs(subjectBtn) {
+    var grades = JSON.parse(subjectBtn.getAttribute('data-grades') || '[]');
+    gradeTabsWrap.innerHTML = '';
+
+    if (subjectBtn.getAttribute('data-subject') === '__all__' || grades.length <= 1) {
+      gradeTabsWrap.classList.add('collapsed');
+      return;
+    }
+
+    gradeTabsWrap.classList.remove('collapsed');
+
+    var allBtn = document.createElement('button');
+    allBtn.type = 'button';
+    allBtn.className = 'grade-tab active';
+    allBtn.textContent = 'Tất cả lớp';
+    allBtn.setAttribute('data-grade', '__all__');
+    gradeTabsWrap.appendChild(allBtn);
+
+    grades.forEach(function (g) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'grade-tab';
+      btn.textContent = gradeLabel(g);
+      btn.setAttribute('data-grade', g);
+      gradeTabsWrap.appendChild(btn);
+    });
+
+    gradeTabsWrap.querySelectorAll('.grade-tab').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        gradeTabsWrap.querySelectorAll('.grade-tab').forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        var activeSubject = document.querySelector('#subject-tabs .subject-tab.active').getAttribute('data-subject');
+        applyFilter(activeSubject, btn.getAttribute('data-grade'));
+      });
+    });
+  }
+
+  subjectTabs.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      subjectTabs.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      buildGradeTabs(btn);
+      applyFilter(btn.getAttribute('data-subject'), '__all__');
+    });
+  });
+});
+</script>
+
 {% endblock %}
