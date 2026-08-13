@@ -6,17 +6,20 @@
   <form class="card-form" method="POST" action="{{ url_for('admin_documents_upload') }}" enctype="multipart/form-data" style="margin-bottom:1.4rem;">
     <label>Tải lên tài liệu tham khảo</label>
     <input type="file" name="document_file" required>
+    <label>Môn học &amp; lớp (VD: Toán 12, Hóa 10, Lí 11) &mdash; để trống nếu tài liệu chung</label>
+    <input type="text" name="subject" placeholder="VD: Toán 12">
     <button class="btn" type="submit">Tải lên</button>
   </form>
 
   <div class="board">
     {% if docs %}
       <table class="admin-table">
-        <thead><tr><th>Tên tệp</th><th>Ngày tải lên</th><th></th></tr></thead>
+        <thead><tr><th>Tên tệp</th><th>Môn &amp; lớp</th><th>Ngày tải lên</th><th></th></tr></thead>
         <tbody>
           {% for d in docs %}
             <tr>
               <td><a href="{{ url_for('serve_document', filename=d['stored_filename']) }}">{{ d['original_filename'] }}</a></td>
+              <td>{{ d['subject'] or '—' }}</td>
               <td>{{ d['uploaded_at'] }}</td>
               <td>
                 <form method="POST" action="{{ url_for('admin_documents_delete', doc_id=d['id']) }}">
