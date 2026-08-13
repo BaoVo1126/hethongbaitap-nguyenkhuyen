@@ -97,6 +97,22 @@
     line-height: 1.5;
   }
 
+  /* KHU VỰC HIỂN THỊ HÌNH ẢNH CÂU HỎI */
+  .question-images {
+    margin: 1rem 0;
+    text-align: center;
+  }
+
+  .question-img {
+    max-width: 100%;
+    max-height: 450px;
+    height: auto;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+    margin-bottom: 0.75rem;
+  }
+
   .options-group {
     display: flex;
     flex-direction: column;
@@ -133,6 +149,32 @@
     color: #2d3748;
     line-height: 1.4;
     word-break: break-word;
+  }
+
+  .essay-answer-group {
+    margin-top: 0.2rem;
+  }
+
+  .essay-textarea {
+    width: 100%;
+    min-height: 110px;
+    padding: 0.85rem 1rem;
+    border: 1px solid #cbd5e0;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-family: inherit;
+    line-height: 1.5;
+    color: #2d3748;
+    background: #fafafa;
+    resize: vertical;
+    box-sizing: border-box;
+    -webkit-appearance: none;
+  }
+
+  .essay-textarea:focus {
+    outline: none;
+    border-color: #b5473a;
+    background: #ffffff;
   }
 
   /* POPUP MÔ TẢ CẢNH BÁO THOÁT BÀI LÀM */
@@ -323,17 +365,42 @@
           <div class="question-title">
             <strong>Câu {{ q.index }}:</strong> {{ q.question_text }}
           </div>
-          <div class="options-group">
-            {% for letter, opt_text in q.options %}
-              <label class="option-label">
-                <input type="radio" 
-                       name="q_{{ q.id }}" 
-                       value="{{ letter }}"
-                       onchange="markAnswered({{ q.id }})">
-                <span class="option-text"><strong>{{ letter }}.</strong> {{ opt_text }}</span>
-              </label>
-            {% endfor %}
-          </div>
+
+          <!-- HIỂN THỊ HÌNH ẢNH NẾU CÓ CẮT / TRÍCH XUẤT TỪ ĐỀ THI -->
+          {% if q.image_urls %}
+            {% set img_list = q.image_urls|from_json %}
+            {% if img_list and img_list|length > 0 %}
+              <div class="question-images">
+                {% for img_url in img_list %}
+                  <img src="{{ img_url if img_url.startswith('/') else url_for('static', filename=img_url) }}" 
+                       class="question-img" 
+                       alt="Hình minh họa câu {{ q.index }}">
+                {% endfor %}
+              </div>
+            {% endif %}
+          {% endif %}
+
+          {% if q.question_type == 'essay' %}
+            <div class="essay-answer-group">
+              <textarea class="essay-textarea"
+                        name="q_{{ q.id }}"
+                        rows="4"
+                        placeholder="Nhập câu trả lời của bạn tại đây..."
+                        oninput="markAnswered({{ q.id }})"></textarea>
+            </div>
+          {% else %}
+            <div class="options-group">
+              {% for letter, opt_text in q.options %}
+                <label class="option-label">
+                  <input type="radio" 
+                         name="q_{{ q.id }}" 
+                         value="{{ letter }}"
+                         onchange="markAnswered({{ q.id }})">
+                  <span class="option-text"><strong>{{ letter }}.</strong> {{ opt_text }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          {% endif %}
         </div>
       {% endfor %}
     </div>
