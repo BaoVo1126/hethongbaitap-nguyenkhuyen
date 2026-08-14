@@ -193,6 +193,11 @@ def init_db():
     db.close()
 
 
+# Tự động khởi tạo Database ngay khi ứng dụng khởi chạy trên Render/Gunicorn
+with app.app_context():
+    init_db()
+
+
 # --------------------------------------------------------------------------
 # Pipeline: Deterministic document & Enhanced Image/Question Extractor
 # --------------------------------------------------------------------------
@@ -441,9 +446,6 @@ def extract_text_from_file(file_path: str, exam_id: int = None) -> str:
 
 
 def _smart_join_fragments(parts) -> str:
-    """Ghép các dòng bị bẻ (word-wrap) của một đáp án lại thành 1 chuỗi.
-    Nếu một dòng kết thúc bằng dấu gạch nối do bị ngắt giữa từ, nối liền
-    không thêm khoảng trắng."""
     cleaned = [p.strip() for p in parts if p and p.strip()]
     if not cleaned:
         return ""
@@ -456,23 +458,12 @@ def _smart_join_fragments(parts) -> str:
     return re.sub(r"\s+", " ", result).strip()
 
 
-# Chỉ nhận CHỮ HOA A/B/C/D làm nhãn phương án trắc nghiệm. Chữ thường a)/b)/
-# c)/d) (thường dùng để đánh dấu các ý đúng/sai trong 1 câu, hoặc các ý a),
-# b) của câu tự luận nhiều phần) KHÔNG được coi là phương án trắc nghiệm — nếu
-# không sẽ nhận nhầm câu "đúng/sai" hoặc câu tự luận nhiều ý thành trắc nghiệm.
 _OPTION_START_RE = re.compile(r"^(?:[\$]\s*)?([ABCD])(?![A-Za-zÀ-ỹ])[.\)~:]?\s*(.*)$")
 
-# Nhận diện đầu 1 câu hỏi: "Câu 1.", "Bài 2.", hoặc số trần "19.1." — dấu chấm
-# phải đứng NGAY sau số (không có khoảng trắng ở giữa) để không nhận nhầm 1
-# mảnh số bị tách rời (ví dụ mẫu số của phân số y=1/7 bị PDF tách thành block
-# riêng "7.") thành đầu 1 câu hỏi mới.
 _QUESTION_START_RE = re.compile(r"^\s*(?:C[âa]u\s+|Bài\s+)?(\d+(?:\.\d+)?)\.\s*(.*)$", re.IGNORECASE)
 
 
 def _parse_option_lines(text: str):
-    """Trích 4 đáp án A/B/C/D từ văn bản thô — hỗ trợ mọi kiểu trình bày:
-    mỗi đáp án 1 dòng riêng, 2 đáp án chung 1 dòng, đáp án dài bị word-wrap
-    qua nhiều dòng, chữ cái đứng 1 mình rồi nội dung xuống dòng sau."""
     options = []
     current_letter = None
     current_parts = []
@@ -501,11 +492,6 @@ def _parse_option_lines(text: str):
 
 
 def _looks_like_header_or_footer(text: str) -> bool:
-    """Nhận diện các dòng tiêu đề/chân trang/phân mục MANG TÍNH CẤU TRÚC
-    (số trang, gạch đầu dòng, "PHẦN I/II/III.", "I./II.", hotline, khẩu hiệu
-    trong ngoặc kép...) — cố tình KHÔNG dựa vào từ khóa riêng của 1 trường/1
-    môn cụ thể nào, để dùng chung được cho bất kỳ đề của bất kỳ môn/giáo viên
-    nào mà không cần chỉnh lại mỗi lần đổi mẫu đề."""
     t = text.lower().strip()
     if not t:
         return True
@@ -520,7 +506,6 @@ def _looks_like_header_or_footer(text: str) -> bool:
         return True
     if re.search(r"\bhotline\b|\bsđt\b|\bđt\b\s*[:.]?\s*\d{7,}", t):
         return True
-    # Khẩu hiệu/slogan chân trang thường để trong ngoặc kép nguyên 1 dòng
     if re.match(r'^["“‘].*["”’]$', text.strip()):
         return True
 
@@ -528,11 +513,6 @@ def _looks_like_header_or_footer(text: str) -> bool:
 
 
 def _render_and_crop_drawings(page, exam_id, page_idx, doc_img_dir, top_ratio=0.08, bottom_ratio=0.93):
-    """Phát hiện đồ thị/bảng biến thiên được VẼ BẰNG NÉT VECTOR (không phải
-    ảnh bitmap nhúng sẵn) rồi crop thành PNG. Bỏ qua nét trang trí nhỏ (bullet,
-    ô vuông điền đáp án...) và mọi nét nằm trong vùng đầu/cuối trang (logo, số
-    trang, chân trang) — lọc theo VỊ TRÍ trên trang nên áp dụng được cho bất kỳ
-    mẫu đề nào, không phụ thuộc nội dung chữ cụ thể."""
     extracted_imgs = []
     try:
         page_h = page.rect.height
@@ -569,7 +549,7 @@ def _render_and_crop_drawings(page, exam_id, page_idx, doc_img_dir, top_ratio=0.
             if w < 50 or h < 40 or w > page.rect.width * 0.95 or h > page.rect.height * 0.8:
                 continue
             if c["count"] < 5:
-                continue  # cụm quá ít nét, khó là 1 hình vẽ thật
+                continue
 
             crop_rect = fitz.Rect(
                 max(0, c["x0"] - 10), max(0, c["y0"] - 10),
@@ -612,18 +592,12 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
         doc_img_dir = os.path.join(EXTRACTED_IMAGES_DIR, str(exam_id))
         os.makedirs(doc_img_dir, exist_ok=True)
 
-    # ---- Bước 1: đọc TOÀN BỘ block + ảnh của mọi trang trước (gắn số trang
-    # vào từng block/ảnh), thay vì xử lý xong-trang-nào-bỏ-trang-đó — để 1 câu
-    # hỏi bị tràn qua trang sau (VD: đề bài ở cuối trang này, bảng biến thiên/
-    # đồ thị nằm ở đầu trang kế tiếp) vẫn được ghép đúng và gán đúng ảnh.
-    all_kept_blocks = []   # (page_idx, text, x0, y0, y1)
-    all_page_images = []   # (page_idx, y0, y1, web_url)
+    all_kept_blocks = []
+    all_page_images = []
     margin_counter = {}
 
     for page_idx, page in enumerate(doc, start=1):
         page_h = page.rect.height
-        # Trang 1 thường có logo/tiêu đề lớn nên vùng "đầu trang" cần rộng hơn;
-        # các trang sau chỉ cần chừa chỗ cho tiêu đề/số trang lặp lại mỏng.
         top_ratio = 0.20 if page_idx == 1 else 0.08
         bottom_ratio = 0.93
 
@@ -632,8 +606,6 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
             x0, y0, x1, y1, text = b[0], b[1], b[2], b[3], (b[4] or "")
             if not text.strip():
                 continue
-            # Lọc theo VỊ TRÍ (không theo nội dung) để loại logo/tiêu đề lặp/số
-            # trang/chân trang cho MỌI mẫu đề, không cần biết trước nó viết gì
             if y1 < page_h * top_ratio or y0 > page_h * bottom_ratio:
                 continue
             all_kept_blocks.append((page_idx, text, x0, y0, y1))
@@ -649,9 +621,9 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
                         continue
                     r = img_rects[0]
                     if r.width < 25 or r.height < 25:
-                        continue  # icon/hoạ tiết trang trí quá nhỏ
+                        continue
                     if r.y1 < page_h * top_ratio or r.y0 > page_h * bottom_ratio:
-                        continue  # logo/hoạ tiết nằm trong vùng đầu/cuối trang
+                        continue
 
                     base_image = doc.extract_image(xref)
                     image_bytes = base_image["image"]
@@ -668,10 +640,6 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
             for (iy0, iy1, url) in _render_and_crop_drawings(page, exam_id, page_idx, doc_img_dir, top_ratio, bottom_ratio):
                 all_page_images.append((page_idx, iy0, iy1, url))
 
-    # Mốc lề trái "chuẩn" của TOÀN VĂN BẢN = các giá trị x0 xuất hiện nhiều
-    # lần. Dùng để phân biệt 1 khối THỰC SỰ là đầu câu hỏi mới với 1 mảnh
-    # phân số (tử/mẫu) bị PDF tách thành block riêng nằm lệch hẳn giữa dòng
-    # (ví dụ "7." đứng một mình do công thức y = 1/7 bị tách làm 2 block).
     common_margins = {x for x, cnt in margin_counter.items() if cnt >= 2}
 
     def near_margin(x0):
@@ -680,7 +648,6 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
         bucket = round(x0 / 4) * 4
         return any(abs(bucket - m) <= 12 for m in common_margins)
 
-    # ---- Bước 2: tách câu hỏi XUYÊN SUỐT mọi trang (không reset theo trang) ----
     q_blocks = []
     current_q = None
     for (page_idx, text, x0, y0, y1) in all_kept_blocks:
@@ -712,14 +679,10 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
                 current_q["question_text_lines"].extend(lines)
             else:
                 current_q["option_blocks"].append(text)
-        # else: nội dung trước câu hỏi đầu tiên của cả đề (tiêu đề, mục tiêu...)
-        # -> bỏ qua, không thuộc câu hỏi nào cả
 
     if current_q:
         q_blocks.append(current_q)
 
-    # ---- Bước 3: gán ảnh cho câu hỏi theo (trang, toạ độ Y) — hỗ trợ đúng cả
-    # câu bị tràn qua trang sau, rồi phân loại MCQ/tự luận ----
     all_questions = []
     for q_idx, q in enumerate(q_blocks):
         if q_idx + 1 < len(q_blocks):
@@ -752,10 +715,7 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
         if all(k in parsed_options and parsed_options[k] for k in "ABCD"):
             all_questions.append(_make_question_dict(q["number"], qtext, "mcq", parsed_options, q["start_page"], q_imgs))
         elif not parsed_options:
-            # Câu tự luận: có số thứ tự, có ảnh/bảng biến thiên đính kèm (nếu
-            # có) nhưng không có 4 đáp án A/B/C/D đi kèm.
             all_questions.append(_make_question_dict(q["number"], qtext, "essay", {}, q["start_page"], q_imgs))
-        # else: chỉ tìm thấy 1-3/4 đáp án -> khả năng cao là lỗi đọc, bỏ qua
 
     return all_questions
 
@@ -826,9 +786,6 @@ def _detect_answer_key(raw_text: str):
 
 
 def _extract_questions_from_xlsx(file_path: str):
-    """Đọc câu hỏi/đáp án trực tiếp từ ô Excel. Hỗ trợ 2 kiểu:
-    1) Bảng cột: câu hỏi | A | B | C | D | (đáp án đúng) -> trắc nghiệm.
-    2) Chỉ có câu hỏi, không có 4 đáp án ở 4 ô kế tiếp -> tự luận."""
     if not OPENPYXL_AVAILABLE:
         return []
     try:
@@ -958,10 +915,6 @@ _GRADE_SUFFIX_RE = re.compile(r"(10|11|12)\s*$")
 
 
 def _parse_subject_grade(subject_text):
-    """Tách chuỗi giáo viên nhập theo cú pháp 'Môn Lớp' (VD: 'Toán 12',
-    'Hóa 10', 'Lí 11') thành (tên môn, lớp). Không phụ thuộc danh sách môn cố
-    định — bất kỳ tên môn nào có số lớp 10/11/12 ở cuối đều tách được, để
-    dùng chung cho mọi môn học, không riêng Toán/Lý/Hóa/Văn."""
     if not subject_text:
         return (None, None)
     text = subject_text.strip()
@@ -974,9 +927,6 @@ def _parse_subject_grade(subject_text):
 
 
 def _group_items_by_subject_grade(items):
-    """Gom danh sách (đề thi/tài liệu) có trường 'subject' dạng 'Môn Lớp'
-    thành cấu trúc lồng: mỗi môn -> các lớp -> danh sách item. Item không có
-    môn/lớp rõ ràng được gom vào nhóm 'Khác' để không bị mất."""
     groups = {}
     order = []
     for it in items:
@@ -1005,9 +955,6 @@ def _group_items_by_subject_grade(items):
 
 
 def _group_items_by_grade_subject(items):
-    """Gom theo LỚP trước rồi tới MÔN trong từng lớp (Lớp 10/11/12 -> Toán/Lí/
-    Hóa/Văn...) — dùng riêng cho cây điều hướng ở sidebar, để học sinh chọn
-    đúng khối lớp của mình trước rồi mới lọc theo môn."""
     groups = {}
     order = []
     for it in items:
@@ -1062,7 +1009,7 @@ def generate_test(exam_id: int, student_name: str, student_code: str, num_questi
         if q["id"] not in q_ids:
             continue
         if q["question_type"] == "essay":
-            continue  # câu tự luận không có 4 phương án để xáo trộn
+            continue
         letters = ["A", "B", "C", "D"]
         if RANDOMIZE_EXAM:
             shuffled = letters[:]
@@ -1088,10 +1035,6 @@ def generate_test(exam_id: int, student_name: str, student_code: str, num_questi
 
 
 def _normalize_answer_text(s: str) -> str:
-    """Chuẩn hoá đáp án tự luận trước khi so khớp: bỏ khoảng trắng thừa, viết
-    thường, gộp dấu trừ Unicode (−) về dấu gạch ngang thường (-), bỏ dấu chấm
-    cuối câu — để 'trùng khớp' không đòi hỏi gõ chính xác từng ký tự/hoa
-    thường như đáp án gốc."""
     if s is None:
         return ""
     s = s.strip().lower()
@@ -1599,14 +1542,11 @@ def admin_delete_question_image(question_id):
     if image_url_to_delete and q["image_urls"]:
         try:
             current_images = json.loads(q["image_urls"])
-            # Lọc bỏ ảnh mà user chọn xóa
             updated_images = [img for img in current_images if img != image_url_to_delete]
             
-            # Cập nhật lại danh sách ảnh vào Database
             db.execute("UPDATE questions SET image_urls=? WHERE id=?", (json.dumps(updated_images), question_id))
             db.commit()
             
-            # (Tùy chọn) Xóa file thực tế trên ổ đĩa nếu là file tĩnh cục bộ
             clean_rel_path = image_url_to_delete.lstrip("/")
             file_disk_path = os.path.join(BASE_DIR, clean_rel_path)
             if os.path.exists(file_disk_path):
@@ -1793,7 +1733,6 @@ def serve_document(filename):
 
 
 if __name__ == "__main__":
-    init_db()
     if PDF_AVAILABLE:
         print("-> Document Parser (PyMuPDF) đã sẵn sàng.")
     if PADDLE_AVAILABLE:
