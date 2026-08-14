@@ -19,22 +19,85 @@
        ========================================================= */
     .topbar {
       background: linear-gradient(135deg, #b91c1c 0%, #dc2626 50%, #ef4444 100%) !important;
+      background-size: 200% 200%;
+      animation: topbarGradientDrift 12s ease infinite;
       color: #ffffff;
       padding: 0.8rem 1.5rem;
-      display: flex;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
       align-items: center;
-      justify-content: space-between;
       box-shadow: 0 4px 20px rgba(185, 28, 28, 0.25);
       position: sticky;
       top: 0;
       z-index: 1020;
       border-bottom: 1px solid rgba(255, 255, 255, 0.2);
     }
+    @keyframes topbarGradientDrift {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
 
     .topbar-brand-zone {
       display: flex;
       align-items: center;
       gap: 12px;
+      justify-self: start;
+    }
+
+    .topbar-right-zone {
+      justify-self: end;
+    }
+
+    /* Điều hướng chính (Kiểm tra / Tài liệu): canh giữa tuyệt đối trên header,
+       nền viên thuốc bo tròn với 1 khối trượt (slider) chạy theo mục đang
+       chọn/hover — lấy cảm hứng từ segmented control kiểu iOS. */
+    .topbar-nav {
+      position: relative;
+      justify-self: center;
+      display: flex;
+      align-items: center;
+      gap: 0.15rem;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      border-radius: 999px;
+      padding: 4px;
+      backdrop-filter: blur(6px);
+    }
+    .nav-slider {
+      position: absolute;
+      top: 4px;
+      bottom: 4px;
+      left: 4px;
+      width: 0;
+      background: #ffffff;
+      border-radius: 999px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+      transition: left 0.4s cubic-bezier(0.65, 0, 0.35, 1), width 0.4s cubic-bezier(0.65, 0, 0.35, 1);
+      z-index: 0;
+    }
+    .topbar-nav-link {
+      position: relative;
+      z-index: 1;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      color: rgba(255, 255, 255, 0.92);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.92rem;
+      padding: 0.5rem 1.15rem;
+      border-radius: 999px;
+      transition: color 0.3s ease;
+    }
+    .topbar-nav-link:hover { color: #ffffff; }
+    .topbar-nav-link.active { color: #b91c1c; }
+    @media (max-width: 768px) {
+      .topbar-nav-link .nav-label { display: none; }
+      .topbar-nav-link { padding: 0.5rem 0.7rem; }
+    }
+    @media (max-width: 560px) {
+      .topbar-nav { display: none; }
     }
 
     /* CHỈNH SỬA: Khối Brand bọc Logo + Tên (Click về trang chủ & Hiệu ứng Hover Phóng to) */
@@ -262,6 +325,187 @@
       from { opacity: 0; transform: scale(0.92); }
       to { opacity: 1; transform: scale(1); }
     }
+
+    /* =========================================================
+       SIDEBAR: CÂY DANH MỤC MÔN HỌC / LỚP (accordion)
+       ========================================================= */
+    .sidebar-section-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--ink-soft);
+      padding: 0.2rem 0.5rem 0.5rem;
+    }
+
+    .sidebar-quicknav {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      margin-bottom: 0.9rem;
+      padding-bottom: 0.9rem;
+      border-bottom: 1px solid var(--paper-line);
+    }
+
+    .subject-tree-all {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      width: 100%;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 0.55rem 0.6rem;
+      font-size: 0.92rem;
+      font-weight: 600;
+      color: var(--ink);
+      cursor: pointer;
+      text-align: left;
+      margin-bottom: 0.35rem;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .subject-tree-all:hover { background: #f4e9e8; border-color: var(--paper-line); }
+    .subject-tree-all.active {
+      background: #fdecea;
+      border-color: var(--header-red);
+      color: var(--header-red-dark);
+    }
+
+    .subject-tree-group { margin-bottom: 0.2rem; }
+
+    .subject-tree-toggle {
+      display: flex;
+      align-items: center;
+      gap: 0.55rem;
+      width: 100%;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 0.55rem 0.6rem;
+      font-size: 0.92rem;
+      font-weight: 600;
+      color: var(--ink);
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .subject-tree-toggle:hover { background: #f4e9e8; border-color: var(--paper-line); }
+    .subject-tree-toggle.active {
+      background: #fdecea;
+      border-color: var(--header-red);
+      color: var(--header-red-dark);
+    }
+
+    .subject-badge {
+      flex: none;
+      width: 26px;
+      height: 26px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 0.78rem;
+      color: #ffffff;
+    }
+
+    .subject-tree-toggle .subj-name { flex: 1 1 auto; }
+    .subject-tree-toggle .subj-count {
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--ink-soft);
+      background: #eee9e4;
+      padding: 0.05rem 0.4rem;
+      border-radius: 999px;
+    }
+    .subject-tree-toggle.active .subj-count {
+      background: rgba(192, 57, 43, 0.14);
+      color: var(--header-red-dark);
+    }
+    .subject-tree-toggle .chevron {
+      flex: none;
+      font-size: 0.75rem;
+      color: var(--ink-soft);
+      transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .subject-tree-toggle.open .chevron { transform: rotate(90deg); }
+
+    .grade-tree-list {
+      max-height: 0;
+      opacity: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      padding-left: 2.1rem;
+      transition: max-height 0.3s ease, opacity 0.25s ease, margin 0.3s ease;
+    }
+    .grade-tree-list.open {
+      max-height: 320px;
+      opacity: 1;
+      margin: 0.3rem 0 0.5rem;
+    }
+
+    .grade-tree-link {
+      display: block;
+      padding: 0.4rem 0.6rem;
+      border-radius: 7px;
+      font-size: 0.85rem;
+      color: var(--ink-soft);
+      text-decoration: none;
+      border-left: 2px solid transparent;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+    .grade-tree-link:hover { background: #f4e9e8; color: var(--ink); }
+    .grade-tree-link.active {
+      background: #fdecea;
+      color: var(--header-red-dark);
+      border-left-color: var(--header-red);
+      font-weight: 700;
+    }
+
+    /* Hiệu ứng trượt xuống lần lượt (staggered) cho các mục con khi mở cây
+       danh mục ở sidebar — mỗi mục xuất hiện trễ hơn mục trước 1 chút để tạo
+       cảm giác "đổ xuống" mượt mà thay vì bật ra cùng lúc. */
+    .grade-tree-list.open .grade-tree-link {
+      animation: gradeItemSlideIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .grade-tree-list.open .grade-tree-link:nth-child(1) { animation-delay: 0.02s; }
+    .grade-tree-list.open .grade-tree-link:nth-child(2) { animation-delay: 0.06s; }
+    .grade-tree-list.open .grade-tree-link:nth-child(3) { animation-delay: 0.10s; }
+    .grade-tree-list.open .grade-tree-link:nth-child(4) { animation-delay: 0.14s; }
+    .grade-tree-list.open .grade-tree-link:nth-child(5) { animation-delay: 0.18s; }
+    .grade-tree-list.open .grade-tree-link:nth-child(6) { animation-delay: 0.22s; }
+    .grade-tree-list.open .grade-tree-link:nth-child(7) { animation-delay: 0.26s; }
+    .grade-tree-list.open .grade-tree-link:nth-child(8) { animation-delay: 0.30s; }
+    @keyframes gradeItemSlideIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Sidebar: các nhóm lớp trượt vào từ bên trái khi trang tải xong */
+    .subject-tree-group, .subject-tree-all {
+      animation: sidebarGroupSlideIn 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .subject-tree-group:nth-child(2) { animation-delay: 0.03s; }
+    .subject-tree-group:nth-child(3) { animation-delay: 0.07s; }
+    .subject-tree-group:nth-child(4) { animation-delay: 0.11s; }
+    .subject-tree-group:nth-child(5) { animation-delay: 0.15s; }
+    .subject-tree-group:nth-child(6) { animation-delay: 0.19s; }
+    @keyframes sidebarGroupSlideIn {
+      from { opacity: 0; transform: translateX(-16px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    /* Thẻ bài kiểm tra / tài liệu: trượt lên nhẹ + mờ dần khi xuất hiện —
+       chạy lại mỗi khi lọc theo môn/lớp nhờ display:none <-> flex ở nhóm cha */
+    .exam-card, .doc-card {
+      animation: cardSlideUp 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    @keyframes cardSlideUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
   </style>
 </head>
 <body>
@@ -310,8 +554,19 @@
       </a>
     </div>
 
+    <!-- Điều hướng chính: Kiểm tra / Tài liệu (chuyển từ sidebar lên header) -->
+    <nav class="topbar-nav" id="topbar-nav">
+      <span class="nav-slider" id="nav-slider"></span>
+      <a href="{{ url_for('home') }}" class="topbar-nav-link {{ 'active' if active == 'kiemtra' else '' }}">
+        <span>&#9998;</span><span class="nav-label">Kiểm tra</span>
+      </a>
+      <a href="{{ url_for('public_documents') }}" class="topbar-nav-link {{ 'active' if active == 'tailieu' else '' }}">
+        <span>&#128196;</span><span class="nav-label">Tài liệu</span>
+      </a>
+    </nav>
+
     <!-- Dùng data-target-url giúp tránh lỗi xung đột dấu nháy trên VS Code -->
-    <a class="teacher-link" 
+    <a class="teacher-link topbar-right-zone" 
        id="btn-teacher-auth"
        href="#" 
        data-target-url="{{ url_for('admin_home') }}">
@@ -324,12 +579,18 @@
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
     <aside class="sidebar" id="app-sidebar">
-      <a class="sidebar-item {{ 'active' if active == 'kiemtra' else '' }}" href="{{ url_for('home') }}">
-        <span class="sidebar-icon">&#9998;</span> Kiểm tra
-      </a>
-      <a class="sidebar-item {{ 'active' if active == 'tailieu' else '' }}" href="{{ url_for('public_documents') }}">
-        <span class="sidebar-icon">&#128196;</span> Tài liệu
-      </a>
+      <!-- Điều hướng nhanh: hiện lại ở sidebar để dùng được trên điện thoại
+           (thanh nav header tự ẩn ở màn hình rất nhỏ) -->
+      <div class="sidebar-quicknav">
+        <a class="sidebar-item {{ 'active' if active == 'kiemtra' else '' }}" href="{{ url_for('home') }}">
+          <span class="sidebar-icon">&#9998;</span> Kiểm tra
+        </a>
+        <a class="sidebar-item {{ 'active' if active == 'tailieu' else '' }}" href="{{ url_for('public_documents') }}">
+          <span class="sidebar-icon">&#128196;</span> Tài liệu
+        </a>
+      </div>
+
+      {% block sidebar_nav %}{% endblock %}
 
       <!-- ẨN TAB THÔNG TIN ĐỐI VỚI HỌC SINH (CHỈ HIỂN THỊ KHI TRONG TRANG ADMIN HOẶC TRUY CẬP MỤC THÔNG TIN) -->
       {% if request.path.startswith('/admin') or active == 'thongtin' %}
@@ -428,9 +689,121 @@
       }
     });
 
+    // ===========================================================
+    // THANH TRƯỢT (SLIDER) CHO NAV KIỂM TRA / TÀI LIỆU Ở HEADER
+    // Trượt mượt tới mục đang active khi tải trang, và lướt theo khi hover
+    // ===========================================================
+    (function () {
+      var nav = document.getElementById('topbar-nav');
+      var slider = document.getElementById('nav-slider');
+      if (!nav || !slider) return;
+
+      function moveSliderTo(link) {
+        if (!link) { slider.style.width = '0'; return; }
+        slider.style.left = link.offsetLeft + 'px';
+        slider.style.width = link.offsetWidth + 'px';
+      }
+
+      function activeLink() {
+        return nav.querySelector('.topbar-nav-link.active') || nav.querySelector('.topbar-nav-link');
+      }
+
+      document.addEventListener('DOMContentLoaded', function () { moveSliderTo(activeLink()); });
+      window.addEventListener('resize', function () { moveSliderTo(activeLink()); });
+
+      nav.querySelectorAll('.topbar-nav-link').forEach(function (link) {
+        link.addEventListener('mouseenter', function () { moveSliderTo(link); });
+      });
+      nav.addEventListener('mouseleave', function () { moveSliderTo(activeLink()); });
+    })();
+
+    // ===========================================================
+    // Trượt xuất hiện lần lượt (stagger) cho danh sách thẻ bài kiểm tra/tài
+    // liệu — chạy lại mỗi khi đổi nhóm hiển thị (lọc theo môn/lớp) vì nhóm
+    // cha bật display:block trở lại sẽ tự khởi động lại animation CSS.
+    // ===========================================================
+    function applyCardStagger() {
+      document.querySelectorAll('.exam-group.visible .exam-card, .doc-group.visible .doc-card').forEach(function (el, idx) {
+        el.style.animationDelay = Math.min(idx * 0.045, 0.5) + 's';
+      });
+    }
+    document.addEventListener('DOMContentLoaded', applyCardStagger);
+    document.addEventListener('sidebarFilterApplied', applyCardStagger);
+
     function closeTeacherAuthModal() {
       document.getElementById('teacher-auth-modal').style.display = 'none';
     }
+
+    // ===========================================================
+    // CÂY DANH MỤC MÔN HỌC Ở SIDEBAR: accordion mở/đóng + màu badge
+    // Cơ chế lọc thực tế (ẩn/hiện danh sách) do từng trang tự định nghĩa
+    // qua hàm window.applySidebarFilter(subject, grade) — ở đây chỉ lo phần
+    // giao diện dùng chung (mở/đóng, tô màu, trạng thái active).
+    // ===========================================================
+    document.addEventListener('DOMContentLoaded', function () {
+      var badgeColors = ['#dc2626', '#2563eb', '#059669', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#4d7c0f'];
+      document.querySelectorAll('.subject-badge').forEach(function (el, idx) {
+        el.style.background = badgeColors[idx % badgeColors.length];
+      });
+
+      var allBtn = document.querySelector('.subject-tree-all');
+      var toggles = document.querySelectorAll('.subject-tree-toggle');
+      var gradeLinks = document.querySelectorAll('.grade-tree-link');
+
+      function clearActiveStates() {
+        if (allBtn) allBtn.classList.remove('active');
+        toggles.forEach(function (t) { t.classList.remove('active'); });
+        gradeLinks.forEach(function (l) { l.classList.remove('active'); });
+      }
+
+      function fireFilter(subject, grade) {
+        if (typeof window.applySidebarFilter === 'function') {
+          window.applySidebarFilter(subject, grade);
+        }
+        document.dispatchEvent(new CustomEvent('sidebarFilterApplied'));
+      }
+
+      if (allBtn) {
+        allBtn.addEventListener('click', function () {
+          clearActiveStates();
+          allBtn.classList.add('active');
+          fireFilter('__all__', '__all__');
+        });
+      }
+
+      toggles.forEach(function (toggle) {
+        var list = toggle.parentElement.querySelector('.grade-tree-list');
+        toggle.addEventListener('click', function () {
+          var wasOpen = toggle.classList.contains('open');
+          toggles.forEach(function (t) {
+            t.classList.remove('open');
+            var l = t.parentElement.querySelector('.grade-tree-list');
+            if (l) l.classList.remove('open');
+          });
+          if (!wasOpen) {
+            toggle.classList.add('open');
+            if (list) list.classList.add('open');
+          }
+          clearActiveStates();
+          toggle.classList.add('active');
+          if (!wasOpen && list) list.classList.add('open');
+          var subj = toggle.getAttribute('data-subject') || '__all__';
+          var grd = toggle.getAttribute('data-grade') || '__all__';
+          fireFilter(subj, grd);
+        });
+      });
+
+      gradeLinks.forEach(function (link) {
+        link.addEventListener('click', function (e) {
+          e.preventDefault();
+          clearActiveStates();
+          link.classList.add('active');
+          var parentToggle = link.closest('.subject-tree-group').querySelector('.subject-tree-toggle');
+          if (parentToggle) parentToggle.classList.add('active');
+          fireFilter(link.getAttribute('data-subject'), link.getAttribute('data-grade'));
+        });
+      });
+    });
   </script>
 </body>
 </html>
