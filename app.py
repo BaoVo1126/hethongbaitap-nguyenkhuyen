@@ -1004,6 +1004,36 @@ def _group_items_by_subject_grade(items):
     return result
 
 
+def _group_items_by_grade_subject(items):
+    """Gom theo LỚP trước rồi tới MÔN trong từng lớp (Lớp 10/11/12 -> Toán/Lí/
+    Hóa/Văn...) — dùng riêng cho cây điều hướng ở sidebar, để học sinh chọn
+    đúng khối lớp của mình trước rồi mới lọc theo môn."""
+    groups = {}
+    order = []
+    for it in items:
+        subj_raw = it["subject"] if "subject" in it.keys() else None
+        name, grade = _parse_subject_grade(subj_raw)
+        if not name:
+            name, grade = "Khác", None
+        grade_key = grade or "Khác"
+        if grade_key not in groups:
+            groups[grade_key] = {"grade": grade_key, "subjects": {}}
+            order.append(grade_key)
+        groups[grade_key]["subjects"].setdefault(name, []).append(it)
+
+    grade_order = sorted(order, key=lambda g: (g == "Khác", g))
+    result = []
+    for gk in grade_order:
+        g = groups[gk]
+        subj_names = sorted(g["subjects"].keys(), key=lambda n: (n == "Khác", n))
+        result.append({
+            "grade": gk,
+            "count": sum(len(v) for v in g["subjects"].values()),
+            "subjects": [{"name": sn, "items": g["subjects"][sn]} for sn in subj_names],
+        })
+    return result
+
+
 def seeded_random(exam_id: int, student_code: str) -> random.Random:
     key = f"{exam_id}:{student_code.strip().lower()}".encode("utf-8")
     seed = int(hashlib.sha256(key).hexdigest(), 16) % (2**32)
@@ -1155,9 +1185,10 @@ def home():
     today_exams = [e for e in exams if not e["available_date"] or e["available_date"] <= today]
     upcoming_exams = [e for e in exams if e["available_date"] and e["available_date"] > today]
     subject_groups = _group_items_by_subject_grade(today_exams)
+    grade_groups = _group_items_by_grade_subject(today_exams)
     return render_template(
         "home.html", center_name=CENTER_NAME, today_exams=today_exams, upcoming_exams=upcoming_exams,
-        subject_groups=subject_groups, active="kiemtra",
+        subject_groups=subject_groups, grade_groups=grade_groups, active="kiemtra",
     )
 
 
@@ -1646,8 +1677,10 @@ def public_documents():
     db = get_db()
     docs = db.execute("SELECT * FROM documents ORDER BY uploaded_at DESC").fetchall()
     subject_groups = _group_items_by_subject_grade(docs)
+    grade_groups = _group_items_by_grade_subject(docs)
     return render_template(
-        "documents.html", center_name=CENTER_NAME, docs=docs, subject_groups=subject_groups, active="tailieu",
+        "documents.html", center_name=CENTER_NAME, docs=docs, subject_groups=subject_groups,
+        grade_groups=grade_groups, active="tailieu",
     )
 
 
