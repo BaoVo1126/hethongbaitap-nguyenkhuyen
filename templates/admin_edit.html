@@ -1,294 +1,37 @@
 {% extends "base.html" %}
 {% block content %}
   {% include "_admin_tabs.html" %}
+  <div class="section-label">Tài liệu</div>
 
-<style>
-  .exam-edit-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    margin-bottom: 1.2rem;
-  }
-  .exam-edit-title { font-size: 1.2rem; font-weight: 700; color: var(--ink); }
-  .exam-edit-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  <form class="card-form" method="POST" action="{{ url_for('admin_documents_upload') }}" enctype="multipart/form-data" style="margin-bottom:1.4rem;">
+    <label>Tải lên tài liệu tham khảo</label>
+    <input type="file" name="document_file" required>
+    <label>Môn học &amp; lớp (VD: Toán 12, Hóa 10, Lí 11) &mdash; để trống nếu tài liệu chung</label>
+    <input type="text" name="subject" placeholder="VD: Toán 12">
+    <button class="btn" type="submit">Tải lên</button>
+  </form>
 
-  .exam-settings-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 1rem;
-    margin-bottom: 1.4rem;
-  }
-  .exam-settings-row form {
-    display: flex;
-    align-items: flex-end;
-    gap: 0.6rem;
-    background: #ffffff;
-    border: 1px solid var(--paper-line);
-    border-radius: var(--card-radius);
-    padding: 0.8rem 1rem;
-  }
-  .exam-settings-row label { margin: 0; }
-  .exam-settings-row input { width: auto; min-width: 160px; }
-
-  .question-edit-card {
-    background: #ffffff;
-    border: 1px solid var(--paper-line);
-    border-radius: var(--card-radius);
-    padding: 1.1rem 1.2rem;
-    margin-bottom: 1rem;
-  }
-  .question-edit-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.6rem;
-  }
-  .question-edit-head .q-num {
-    font-weight: 700;
-    color: var(--header-red);
-    font-size: 0.95rem;
-  }
-  .question-edit-card textarea.q-text-input {
-    min-height: 60px;
-    margin-bottom: 0.8rem;
-  }
-  .option-edit-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.6rem;
-  }
-  .option-edit-row {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .option-edit-row .opt-letter {
-    font-weight: 700;
-    color: var(--ink-soft);
-    width: 1.3rem;
-    text-align: center;
-    flex-shrink: 0;
-  }
-  .option-edit-row input[type=radio] {
-    width: auto;
-    flex-shrink: 0;
-    accent-color: var(--correct);
-  }
-  .option-edit-row input[type=text] {
-    flex: 1;
-  }
-  .correct-answer-hint {
-    font-size: 0.78rem;
-    color: var(--ink-soft);
-    margin-top: 0.5rem;
-  }
-  .type-chip {
-    display: inline-block;
-    font-size: 0.7rem;
-    font-weight: 600;
-    padding: 0.15rem 0.5rem;
-    border-radius: 999px;
-    margin-left: 0.5rem;
-    vertical-align: middle;
-  }
-  .type-chip.essay { background: #eef2ff; color: #4338ca; }
-  .type-chip.mcq { background: #e3f1e5; color: var(--correct); }
-  .essay-note {
-    font-size: 0.85rem;
-    color: var(--ink-soft);
-    margin-bottom: 0.6rem;
-  }
-  .essay-key-input {
-    margin-top: 0.3rem;
-  }
-
-  /* STYLES HIỂN THỊ HÌNH ẢNH CÂU HỎI & NÚT XÓA ẢNH */
-  .question-images-preview {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.8rem;
-    margin-bottom: 0.8rem;
-    padding: 0.6rem;
-    background: #f8fafc;
-    border: 1px dashed var(--paper-line);
-    border-radius: 6px;
-  }
-  .img-item-wrapper {
-    position: relative;
-    display: inline-block;
-    border: 1px solid #cbd5e1;
-    border-radius: 6px;
-    background: #ffffff;
-    padding: 4px;
-  }
-  .img-item-wrapper img {
-    max-height: 180px;
-    max-width: 100%;
-    object-fit: contain;
-    border-radius: 4px;
-    display: block;
-  }
-  .btn-delete-img {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    background: rgba(220, 38, 38, 0.88);
-    color: #ffffff;
-    border: none;
-    border-radius: 4px;
-    padding: 3px 8px;
-    font-size: 0.75rem;
-    font-weight: 700;
-    cursor: pointer;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.15);
-    transition: background 0.2s;
-  }
-  .btn-delete-img:hover {
-    background: #dc2626;
-  }
-
-  @media (max-width: 700px) {
-    .option-edit-grid { grid-template-columns: 1fr; }
-  }
-</style>
-
-<div class="exam-edit-head">
-  <div class="exam-edit-title">
-    {{ exam['title'] }}
-    {% if exam['subject'] %}<span class="meta" style="font-weight:400; color:var(--ink-soft);"> &middot; {{ exam['subject'] }}</span>{% endif %}
-    <span class="status-chip {{ exam['status'] }}">{{ 'Đã đăng' if exam['status']=='published' else 'Bản nháp' }}</span>
-  </div>
-  <div class="exam-edit-actions">
-    <a class="btn small secondary" href="{{ url_for('admin_home') }}">&larr; Về danh sách đề</a>
-    {% if exam['status'] == 'published' %}
-      <form method="POST" action="{{ url_for('admin_unpublish_exam', exam_id=exam['id']) }}" style="display:inline;">
-        <button class="btn small danger" type="submit">Gỡ đăng</button>
-      </form>
+  <div class="board">
+    {% if docs %}
+      <table class="admin-table">
+        <thead><tr><th>Tên tệp</th><th>Môn &amp; lớp</th><th>Ngày tải lên</th><th></th></tr></thead>
+        <tbody>
+          {% for d in docs %}
+            <tr>
+              <td><a href="{{ url_for('serve_document', filename=d['stored_filename']) }}">{{ d['original_filename'] }}</a></td>
+              <td>{{ d['subject'] or '—' }}</td>
+              <td>{{ d['uploaded_at'] }}</td>
+              <td>
+                <form method="POST" action="{{ url_for('admin_documents_delete', doc_id=d['id']) }}">
+                  <button class="btn small danger" type="submit">Xoá</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     {% else %}
-      <form method="POST" action="{{ url_for('admin_publish_exam', exam_id=exam['id']) }}" style="display:inline;">
-        <button class="btn small" type="submit">Đăng cho học sinh</button>
-      </form>
+      <div class="empty-note">Chưa có tài liệu nào.</div>
     {% endif %}
   </div>
-</div>
-
-<div class="exam-settings-row">
-  <form method="POST" action="{{ url_for('admin_update_schedule', exam_id=exam['id']) }}">
-    <div>
-      <label>Ngày mở bài</label>
-      <input type="date" name="available_date" value="{{ exam['available_date'] or '' }}">
-    </div>
-    <button class="btn small secondary" type="submit">Lưu ngày</button>
-  </form>
-
-  <form method="POST" action="{{ url_for('admin_update_time_limit', exam_id=exam['id']) }}">
-    <div>
-      <label>Thời gian làm bài (phút)</label>
-      <input type="number" name="time_limit_minutes" min="1" placeholder="Để trống = không giới hạn" value="{{ exam['time_limit_minutes'] or '' }}">
-    </div>
-    <button class="btn small secondary" type="submit">Lưu thời gian</button>
-  </form>
-</div>
-
-<div class="section-label">
-  Danh sách câu hỏi ({{ questions|length }} câu)
-</div>
-
-{% if questions %}
-<form method="POST" action="{{ url_for('admin_save_all_questions', exam_id=exam['id']) }}" id="edit-questions-form">
-  {% for q in questions %}
-    <input type="hidden" name="question_ids" value="{{ q['id'] }}">
-    <div class="question-edit-card">
-      <div class="question-edit-head">
-        <span class="q-num">Câu {{ loop.index }}
-          <span class="type-chip {{ q['question_type'] }}">{{ 'Tự luận' if q['question_type'] == 'essay' else 'Trắc nghiệm' }}</span>
-        </span>
-        <span style="display:flex; gap:0.5rem;">
-          <button class="btn small secondary" type="submit" formaction="{{ url_for('admin_toggle_question_type', question_id=q['id']) }}" formnovalidate>
-            {{ 'Đổi thành trắc nghiệm' if q['question_type'] == 'essay' else 'Đổi thành tự luận' }}
-          </button>
-          <button class="btn small danger" type="submit" formaction="{{ url_for('admin_delete_question', question_id=q['id']) }}" formnovalidate onclick="return confirm('Xoá câu hỏi này khỏi đề?');">Xoá câu</button>
-        </span>
-      </div>
-
-      <label>Nội dung câu hỏi</label>
-      <textarea class="q-text-input" name="question_text_{{ q['id'] }}">{{ q['question_text'] }}</textarea>
-
-      <!-- BỔ SUNG: HIỂN THỊ HÌNH ẢNH / BIỂU ĐỒ TRÍCH XUẤT NẾU CÓ CÙNG NÚT XÓA -->
-      {% if q['image_urls'] %}
-        {% set img_list = q['image_urls']|from_json %}
-        {% if img_list and img_list|length > 0 %}
-          <label style="color: var(--ink-soft); font-size: 0.85rem;">Hình ảnh / Đồ thị đính kèm:</label>
-          <div class="question-images-preview">
-            {% for img_url in img_list %}
-              <div class="img-item-wrapper">
-                <img src="{{ img_url if img_url.startswith('/') else url_for('static', filename=img_url) }}" alt="Hình minh họa câu {{ loop.index }}">
-                
-                <!-- Form nút xóa từng ảnh đính kèm -->
-                <button type="submit" 
-                        class="btn-delete-img"
-                        formaction="{{ url_for('admin_delete_question_image', question_id=q['id']) }}"
-                        formmethod="POST"
-                        formnovalidate
-                        onclick="return confirm('Bạn có chắc muốn xóa ảnh này khỏi câu hỏi?');"
-                        name="image_url" 
-                        value="{{ img_url }}">
-                  ✕ Xóa ảnh
-                </button>
-              </div>
-            {% endfor %}
-          </div>
-        {% endif %}
-      {% endif %}
-
-      {% if q['question_type'] == 'essay' %}
-        <div class="essay-note">Câu tự luận &middot; học sinh sẽ nhập câu trả lời dạng văn bản khi làm bài.</div>
-        <label>Đáp án đúng (để tự động chấm khi học sinh gõ trùng khớp — để trống nếu muốn tự chấm tay)</label>
-        <input type="text" class="essay-key-input" name="correct_answer_text_{{ q['id'] }}" value="{{ q['correct_answer_text'] or '' }}" placeholder="VD: Đúng, hoặc 12, hoặc -5/2...">
-      {% else %}
-        <label>4 phương án &middot; chọn nút tròn ở phương án đúng</label>
-        <div class="option-edit-grid">
-          {% for letter in ['A', 'B', 'C', 'D'] %}
-            <div class="option-edit-row">
-              <input type="radio" name="correct_answer_{{ q['id'] }}" value="{{ letter }}" {% if q['correct_answer'] == letter %}checked{% endif %}>
-              <span class="opt-letter">{{ letter }}</span>
-              <input type="text" name="option_{{ letter|lower }}_{{ q['id'] }}" value="{{ q['option_' ~ letter|lower] }}">
-            </div>
-          {% endfor %}
-        </div>
-        {% if not q['correct_answer'] %}
-          <div class="correct-answer-hint">Chưa chọn đáp án đúng cho câu này.</div>
-        {% endif %}
-      {% endif %}
-    </div>
-  {% endfor %}
-
-  <button class="btn" type="submit">Lưu toàn bộ thay đổi</button>
-</form>
-{% else %}
-  <div class="board">
-    <div class="empty-note">Chưa có câu hỏi nào cho đề này. Hãy thêm câu hỏi thủ công bên dưới.</div>
-  </div>
-{% endif %}
-
-<div style="margin-top:1rem; display:flex; gap:0.6rem; flex-wrap:wrap;">
-  <form method="POST" action="{{ url_for('admin_add_question', exam_id=exam['id']) }}">
-    <input type="hidden" name="question_type" value="mcq">
-    <button class="btn secondary" type="submit">+ Thêm câu trắc nghiệm</button>
-  </form>
-  <form method="POST" action="{{ url_for('admin_add_question', exam_id=exam['id']) }}">
-    <input type="hidden" name="question_type" value="essay">
-    <button class="btn secondary" type="submit">+ Thêm câu tự luận</button>
-  </form>
-</div>
-
-{% if exam['raw_ocr_text'] %}
-  <details style="margin-top:1.6rem;">
-    <summary style="cursor:pointer; font-weight:700; color:var(--ink-soft); font-size:0.85rem;">Xem văn bản gốc trích xuất từ tệp (để đối chiếu)</summary>
-    <pre style="white-space:pre-wrap; background:#fff; border:1px solid var(--paper-line); border-radius:var(--card-radius); padding:1rem; margin-top:0.6rem; font-size:0.82rem; max-height:400px; overflow:auto;">{{ exam['raw_ocr_text'] }}</pre>
-  </details>
-{% endif %}
-
 {% endblock %}
