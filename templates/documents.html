@@ -1,85 +1,35 @@
 {% extends "base.html" %}
+
+{% block sidebar_nav %}
+  {% if grade_groups %}
+    <div class="sidebar-section-label">Danh mục theo lớp</div>
+    <button type="button" class="subject-tree-all active">
+      <span class="subject-badge" style="background:var(--header-red);">A</span> Tất cả lớp
+    </button>
+    {% for g in grade_groups %}
+      <div class="subject-tree-group">
+        <button type="button" class="subject-tree-toggle" data-subject="__all__" data-grade="{{ g.grade }}">
+          <span class="subject-badge">{{ 'K' if g.grade == 'Khác' else g.grade }}</span>
+          <span class="subj-name">{{ 'Lớp ' ~ g.grade if g.grade != 'Khác' else 'Khác' }}</span>
+          <span class="subj-count">{{ g.count }}</span>
+          <span class="chevron">&#8250;</span>
+        </button>
+        <div class="grade-tree-list">
+          {% for s in g.subjects %}
+            <a href="#" class="grade-tree-link" data-subject="{{ s.name }}" data-grade="{{ g.grade }}">
+              {{ s.name }}
+              <span style="float:right; color:var(--ink-soft); font-size:0.78rem;">{{ s['items']|length }}</span>
+            </a>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endblock %}
+
 {% block content %}
 
 <style>
-  .tabs-panel { margin-bottom: 1.6rem; }
-
-  .subject-tabs {
-    display: flex;
-    gap: 0.5rem;
-    overflow-x: auto;
-    padding-bottom: 0.4rem;
-    scrollbar-width: thin;
-    -webkit-overflow-scrolling: touch;
-  }
-  .subject-tabs::-webkit-scrollbar { height: 5px; }
-  .subject-tabs::-webkit-scrollbar-thumb { background: var(--paper-line); border-radius: 4px; }
-
-  .subject-tab {
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    background: #ffffff;
-    border: 1px solid var(--paper-line);
-    color: var(--ink);
-    font-weight: 600;
-    font-size: 0.92rem;
-    padding: 0.5rem 1rem;
-    border-radius: 999px;
-    cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-    white-space: nowrap;
-  }
-  .subject-tab:hover {
-    border-color: var(--header-red);
-    color: var(--header-red-dark);
-    transform: translateY(-1px);
-  }
-  .subject-tab.active {
-    background: linear-gradient(135deg, #b91c1c 0%, #dc2626 50%, #ef4444 100%);
-    border-color: transparent;
-    color: #ffffff;
-    box-shadow: 0 4px 14px rgba(220, 38, 38, 0.3);
-    transform: translateY(-1px);
-  }
-  .subject-tab .tab-count {
-    font-size: 0.72rem;
-    font-weight: 700;
-    background: rgba(0, 0, 0, 0.08);
-    padding: 0.05rem 0.42rem;
-    border-radius: 999px;
-    line-height: 1.4;
-  }
-  .subject-tab.active .tab-count { background: rgba(255, 255, 255, 0.28); }
-
-  .grade-tabs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-    margin-top: 0.7rem;
-    max-height: 500px;
-    opacity: 1;
-    transition: max-height 0.3s ease, opacity 0.25s ease, margin-top 0.3s ease;
-    overflow: hidden;
-  }
-  .grade-tabs.collapsed { max-height: 0; opacity: 0; margin-top: 0; }
-
-  .grade-tab {
-    flex: 0 0 auto;
-    background: #f7f7f5;
-    border: 1px solid var(--paper-line);
-    color: var(--ink-soft);
-    font-weight: 600;
-    font-size: 0.82rem;
-    padding: 0.34rem 0.85rem;
-    border-radius: 999px;
-    cursor: pointer;
-    transition: all 0.18s ease;
-  }
-  .grade-tab:hover { border-color: var(--header-red); color: var(--header-red-dark); }
-  .grade-tab.active { background: var(--header-red); border-color: var(--header-red); color: #ffffff; }
-
   .doc-card {
     display: flex;
     align-items: center;
@@ -128,21 +78,6 @@
 <div class="section-label">Tài liệu</div>
 
 {% if docs %}
-  <div class="tabs-panel">
-    <div class="subject-tabs" id="subject-tabs">
-      <button type="button" class="subject-tab active" data-subject="__all__" data-grades="[]">
-        Tất cả <span class="tab-count">{{ docs|length }}</span>
-      </button>
-      {% for g in subject_groups %}
-        <button type="button" class="subject-tab" data-subject="{{ g.name }}"
-                data-grades='{{ g.grades|map(attribute="grade")|list|tojson }}'>
-          {{ g.name }} <span class="tab-count">{{ g.count }}</span>
-        </button>
-      {% endfor %}
-    </div>
-    <div class="grade-tabs collapsed" id="grade-tabs"></div>
-  </div>
-
   <div id="doc-groups">
     {% for g in subject_groups %}
       {% for gr in g.grades %}
@@ -166,18 +101,9 @@
 {% endif %}
 
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-  var subjectTabs = document.querySelectorAll('#subject-tabs .subject-tab');
-  var gradeTabsWrap = document.getElementById('grade-tabs');
-  var docGroups = document.querySelectorAll('#doc-groups .doc-group');
-  var emptyNote = document.getElementById('doc-empty-note');
-
-  var gradeLabel = function (g) {
-    if (g === 'Khác' || !g) return 'Khác';
-    return 'Lớp ' + g;
-  };
-
-  function applyFilter(subject, grade) {
+  window.applySidebarFilter = function (subject, grade) {
+    var docGroups = document.querySelectorAll('#doc-groups .doc-group');
+    var emptyNote = document.getElementById('doc-empty-note');
     var anyVisible = false;
     docGroups.forEach(function (el) {
       var matchSubject = (subject === '__all__') || (el.getAttribute('data-subject') === subject);
@@ -190,54 +116,7 @@ document.addEventListener('DOMContentLoaded', function () {
       }
     });
     if (emptyNote) emptyNote.style.display = anyVisible ? 'none' : 'block';
-  }
-
-  function buildGradeTabs(subjectBtn) {
-    var grades = JSON.parse(subjectBtn.getAttribute('data-grades') || '[]');
-    gradeTabsWrap.innerHTML = '';
-
-    if (subjectBtn.getAttribute('data-subject') === '__all__' || grades.length <= 1) {
-      gradeTabsWrap.classList.add('collapsed');
-      return;
-    }
-
-    gradeTabsWrap.classList.remove('collapsed');
-
-    var allBtn = document.createElement('button');
-    allBtn.type = 'button';
-    allBtn.className = 'grade-tab active';
-    allBtn.textContent = 'Tất cả lớp';
-    allBtn.setAttribute('data-grade', '__all__');
-    gradeTabsWrap.appendChild(allBtn);
-
-    grades.forEach(function (g) {
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'grade-tab';
-      btn.textContent = gradeLabel(g);
-      btn.setAttribute('data-grade', g);
-      gradeTabsWrap.appendChild(btn);
-    });
-
-    gradeTabsWrap.querySelectorAll('.grade-tab').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        gradeTabsWrap.querySelectorAll('.grade-tab').forEach(function (b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-        var activeSubject = document.querySelector('#subject-tabs .subject-tab.active').getAttribute('data-subject');
-        applyFilter(activeSubject, btn.getAttribute('data-grade'));
-      });
-    });
-  }
-
-  subjectTabs.forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      subjectTabs.forEach(function (b) { b.classList.remove('active'); });
-      btn.classList.add('active');
-      buildGradeTabs(btn);
-      applyFilter(btn.getAttribute('data-subject'), '__all__');
-    });
-  });
-});
+  };
 </script>
 
 {% endblock %}
