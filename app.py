@@ -55,20 +55,13 @@ except ImportError:
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:latest")  
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-if os.environ.get('VERCEL'):
-    DB_PATH = '/tmp/center.db'
-    UPLOAD_DIR = '/tmp/uploads'
-    DOCS_DIR = os.path.join(UPLOAD_DIR, "documents")
-    CONVERTED_DIR = os.path.join(UPLOAD_DIR, "_converted")
-    EXTRACTED_IMAGES_DIR = '/tmp/extracted_images'
-else:
-    DB_PATH = os.path.join(BASE_DIR, "center.db")
-    UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
-    DOCS_DIR = os.path.join(UPLOAD_DIR, "documents")
-    CONVERTED_DIR = os.path.join(UPLOAD_DIR, "_converted")
-    EXTRACTED_IMAGES_DIR = os.path.join(BASE_DIR, "static", "extracted_images")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "center.db")
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+DOCS_DIR = os.path.join(UPLOAD_DIR, "documents")
+CONVERTED_DIR = os.path.join(UPLOAD_DIR, "_converted")
+EXTRACTED_IMAGES_DIR = os.path.join(BASE_DIR, "static", "extracted_images")
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(DOCS_DIR, exist_ok=True)
