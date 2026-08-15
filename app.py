@@ -460,7 +460,65 @@ def _smart_join_fragments(parts) -> str:
 
 
 _OPTION_START_RE = re.compile(r"^(?:[\$]\s*)?([ABCD])(?![A-Za-zÀ-ỹ])[.\)~:]?\s*(.*)$")
-_QUESTION_START_RE = re.compile(r"^\s*(?:C[âa]u\s+|Bài\s+)?(\d+(?:\.\d+)?)\.\s*(.*)$", re.IGNORECASE)
+# Broadened to also accept an optional point-value / note annotation between the
+# question number and the mandatory terminating period, e.g. "Bài 1 (2,0 điểm)."
+# or "Bài 2 (3,0 điểm) - Thực tế." (both seen in real center exam templates),
+# in addition to the plain "Câu 5." / "Bài 3." form.
+_QUESTION_START_RE = re.compile(
+    r"^\s*(?:C[âa]u\s+|Bài\s+)?(\d+(?:\.\d+)?)\s*(?:\([^)]{0,40}\))?\s*(?:[-–]\s*[^.\n]{0,30})?\.\s*(.*)$",
+    re.IGNORECASE,
+)
+# Matches a marker anywhere inside a line (not just at line-start), so a single
+# extracted line containing several options back-to-back — e.g.
+# "A. 5. B. 6. C. 9. D. 12." (common when a PDF's 2-column option grid gets
+# flattened into one text line) — is still split into its 4 options correctly.
+_INLINE_OPTION_RE = re.compile(r'(?:^|(?<=\s))([ABCD])(?![A-Za-zÀ-ỹ])[.\)~:]\s+(?=\S)')
+_DOTS_ONLY_RE = re.compile(r"^[.\-–—_\s]{4,}$")
+
+
+def _looks_like_bai_title(line: str) -> bool:
+    """True for a bare topic/title line like 'Bài 2. Nguyên tố hóa học'
+    (the exam's subject line, printed once near the top of the document),
+    as opposed to a real tự luận question like 'Bài 1 (2,0 điểm). ...'."""
+    m = re.match(r"^\s*bài\s+\d+\.\s*(.*)$", line.strip(), re.IGNORECASE)
+    if not m:
+        return False
+    rest = m.group(1).strip()
+    if "điểm" in rest.lower() or "(" in rest:
+        return False
+    return 0 < len(rest) <= 60 and rest.count(".") == 0
+
+
+def _looks_like_all_caps_header(line: str) -> bool:
+    """True for letterhead/title lines such as 'TRUNG TÂM LUYỆN THI NGUYỄN
+    KHUYẾN' or 'MÔN: HÓA HỌC 10' — generalizes across any center name/subject
+    since it only relies on the text being fully uppercase, not specific
+    keywords. Requires at least 2 real (3+ letter) uppercase words so it
+    never mistakes a run of bare option markers (e.g. 'A. 5.  B. 6.') for a
+    header."""
+    t = line.strip()
+    if not (5 <= len(t) <= 90):
+        return False
+    words = re.findall(r"[A-Za-zÀ-Ỹà-ỹ]+", t)
+    long_words = [w for w in words if len(w) >= 3]
+    if len(long_words) < 2:
+        return False
+    return all(w == w.upper() for w in long_words)
+
+
+def _split_line_by_options(line: str):
+    """Split a single line that may contain 1-4 option markers into
+    (letter, text) segments, e.g. 'A. 5. B. 6.' -> [('A','5.'), ('B','6.')]."""
+    matches = list(_INLINE_OPTION_RE.finditer(line))
+    if not matches:
+        return []
+    segments = []
+    for i, m in enumerate(matches):
+        letter = m.group(1).upper()
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(line)
+        segments.append((letter, line[start:end].strip()))
+    return segments
 
 
 def _parse_option_lines(text: str):
@@ -475,13 +533,13 @@ def _parse_option_lines(text: str):
         if _looks_like_header_or_footer(line):
             continue
 
-        m = _OPTION_START_RE.match(line)
-        if m:
-            if current_letter is not None:
-                options.append((current_letter, _smart_join_fragments(current_parts)))
-            current_letter = m.group(1).upper()
-            val = m.group(2).strip()
-            current_parts = [val] if val else []
+        segments = _split_line_by_options(line)
+        if segments:
+            for letter, value in segments:
+                if current_letter is not None:
+                    options.append((current_letter, _smart_join_fragments(current_parts)))
+                current_letter = letter
+                current_parts = [value] if value else []
         elif current_letter is not None:
             current_parts.append(line)
 
@@ -491,28 +549,136 @@ def _parse_option_lines(text: str):
     return options
 
 
+_HEADER_FOOTER_PATTERNS = [
+    r"^[■•»›]",
+    r"^phần\s+[ivx]+\b",
+    r"^(?:i|ii|iii|iv|v)\.\s",
+    r"^họ\s+và\s+tên\b",
+    r"^lớp\s*[:.]",
+    r"^ngày\s+kiểm\s+tra\b|^ngày\s*[:.]",
+    r"^đi[ểe]m\s*[:.]",
+    r"^đi[ểe]m\s+tiến\s+bộ",
+    r"^thời\s+gian\s+làm\s+bài",
+    r"^mã\s+đề\b",
+    r"^hướng\s+dẫn\s*[:.]",
+    r"^lưu\s+ý\s*[:.]",
+    r"^nhận\s+xét\b",
+    r"^ký\s+(và\s+)?ghi\s+rõ",
+    r"^nội\s+dung\s+cần\s+ôn",
+    r"^câu\s+cần\s+sửa",
+    r"^phụ\s+huynh\s+đã\s+xem",
+    r"^(hoàn thành tốt|đạt yêu cầu|cần củng cố)",
+    r"^trang\s+\d+\s*$",
+    r"^hết\s*$",
+    r"^địa\s+chỉ\s*[:.]",
+    r"□|☐",
+]
+_HEADER_FOOTER_RE = [re.compile(p, re.IGNORECASE) for p in _HEADER_FOOTER_PATTERNS]
+
+
 def _looks_like_header_or_footer(text: str) -> bool:
-    t = text.lower().strip()
+    t = text.strip()
     if not t:
         return True
 
-    if re.match(r"^[■•»›]", t):
+    if _DOTS_ONLY_RE.match(t):
         return True
-    if re.match(r"^phần\s+[ivx]+\b", t):
+    # A bare page-number style line (e.g. "- 3 -"), but NOT a lone number on
+    # its own (that would also match stray isotope/formula digits such as a
+    # superscript mass number, which must be kept).
+    if re.fullmatch(r"[-–—»\s]*\d+\s*[-–—»]+\s*", t) or re.fullmatch(r"[-–—»]+\s*\d+[-–—»\s]*", t):
         return True
-    if re.match(r"^(?:i|ii|iii|iv|v)\.\s", t):
+    if re.search(r"\bhotline\b|\bsđt\b|\bđt\b\s*[:.]?\s*\d{7,}", t, re.IGNORECASE):
         return True
-    if re.fullmatch(r"[-–—»\s]*\d+[-–—»\s]*", t):
+    if re.match(r'^["“‘].*["”’]$', t):
         return True
-    if re.search(r"\bhotline\b|\bsđt\b|\bđt\b\s*[:.]?\s*\d{7,}", t):
-        return True
-    if re.match(r'^["“‘].*["”’]$', text.strip()):
+    for rx in _HEADER_FOOTER_RE:
+        if rx.search(t):
+            return True
+    if _looks_like_all_caps_header(t):
         return True
 
     return False
 
 
-def _render_and_crop_drawings(page, exam_id, page_idx, doc_img_dir, top_ratio=0.08, bottom_ratio=0.93):
+def _find_boilerplate_lines(all_lines):
+    """Lines that repeat verbatim across the document (e.g. a center's
+    letterhead/address printed on every page, or 'Trang N' footers) are
+    boilerplate regardless of their position on the page. Works for any
+    center name/template since it's purely frequency-based, not keyword-based.
+    `all_lines` is an iterable of (page_idx, x0, y0, text)."""
+    from collections import Counter
+    counts = Counter()
+    for (_page_idx, _x0, _y0, text) in all_lines:
+        cleaned = _clean_extracted_line(text)
+        if not cleaned or len(cleaned) > 90:
+            continue
+        if _QUESTION_START_RE.match(cleaned) or _OPTION_START_RE.match(cleaned):
+            continue
+        counts[cleaned] += 1
+    return {line for line, c in counts.items() if c >= 2}
+
+
+def _cluster_same_line_fragments(blocks, tol=10):
+    """Merge fragments sitting on the same visual line (e.g. a chemistry
+    symbol plus its superscript/subscript mass number, which PyMuPDF reports
+    as separate text lines with a small y-offset) into one line, ordered
+    left-to-right by x0. `blocks` is a list of (x0, y0, text)."""
+    if not blocks:
+        return []
+    frags = sorted(blocks, key=lambda b: b[1])
+    rows = []
+    for x0, y0, text in frags:
+        placed = False
+        for row in rows:
+            if abs(row["y0"] - y0) <= tol:
+                row["items"].append((x0, y0, text))
+                row["y0"] = min(row["y0"], y0)
+                placed = True
+                break
+        if not placed:
+            rows.append({"y0": y0, "items": [(x0, y0, text)]})
+    result = []
+    for row in rows:
+        items = sorted(row["items"], key=lambda t: t[0])
+        result.append((items[0][0], row["y0"], " ".join(t[2] for t in items)))
+    return result
+
+
+def _reorder_grid_blocks(blocks):
+    """blocks: list of (x0, y0, text) fragments belonging to one question's
+    option/answer area, which may be laid out as a multi-column grid (2 or 4
+    columns, common for short MCQ options) where each column's cell can wrap
+    across several separate line fragments. PDF text-extraction order for
+    such grids is often scrambled (columns interleave), so this reconstructs
+    correct reading order in two passes: first merge same-visual-line
+    fragments (handles super/subscript notation), then cluster the resulting
+    lines into columns by x0 and sort each column top-to-bottom. Returns a
+    list of merged per-column text blobs (order across columns doesn't
+    matter for correctness since callers key options by their own A/B/C/D
+    marker, not by position)."""
+    if not blocks:
+        return []
+    lines = _cluster_same_line_fragments(blocks)
+    columns = []
+    for x0, y0, text in lines:
+        placed = False
+        for col in columns:
+            if abs(col["x"] - x0) <= 15:
+                col["items"].append((x0, y0, text))
+                col["x"] = sum(i[0] for i in col["items"]) / len(col["items"])
+                placed = True
+                break
+        if not placed:
+            columns.append({"x": x0, "items": [(x0, y0, text)]})
+    ordered = []
+    for col in columns:
+        items = sorted(col["items"], key=lambda t: t[1])
+        ordered.append("\n".join(t[2] for t in items))
+    return ordered
+
+
+def _render_and_crop_drawings(page, exam_id, page_idx, doc_img_dir, top_ratio=0.02, bottom_ratio=0.97):
     extracted_imgs = []
     try:
         page_h = page.rect.height
@@ -583,6 +749,33 @@ def _make_question_dict(number, qtext, question_type, options, page, image_urls)
 
 
 def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
+    """Parses an exam PDF into a list of question dicts.
+
+    Works at the individual TEXT-LINE level (via PyMuPDF's "dict" text mode,
+    which gives each line its own x/y position) rather than at the coarser
+    "block" level, for two reasons learned from real center exam templates:
+
+    1. A PDF "block" can bundle several questions' worth of lines together
+       when there's no blank-line gap between them, so scanning only a
+       block's first line for a new "Câu N." marker silently swallows every
+       question that starts mid-block. Scanning every line fixes this.
+    2. Two/four-column option grids (A/B on one row, C/D on the next, or a
+       full A-B-C-D row) do not always come out of PDF text extraction in
+       correct reading order — especially when an option's text wraps onto
+       a second line, or when it contains superscript/subscript notation
+       (isotope symbols, chemical formulas). `_reorder_grid_blocks` fixes
+       this using each line's real x/y position rather than trusting
+       extraction order.
+
+    No geometric top/bottom page-margin cropping is applied here: an earlier
+    version cropped a fixed top/bottom percentage of every page to strip
+    repeated headers/footers, but that silently deleted real questions that
+    happened to start right at the top of a page after a page break. Header/
+    footer noise (letterhead, "Họ và tên", "Trang N", ...) is instead
+    filtered by content via `_looks_like_header_or_footer` and
+    `_find_boilerplate_lines` (lines repeated verbatim across pages), which
+    generalizes to any center's letterhead/subject without losing content.
+    """
     if not PDF_AVAILABLE:
         return []
 
@@ -592,25 +785,26 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
         doc_img_dir = os.path.join(EXTRACTED_IMAGES_DIR, str(exam_id))
         os.makedirs(doc_img_dir, exist_ok=True)
 
-    all_kept_blocks = []
+    all_lines = []  # (page_idx, x0, y0, text)
     all_page_images = []
     margin_counter = {}
 
     for page_idx, page in enumerate(doc, start=1):
         page_h = page.rect.height
-        top_ratio = 0.20 if page_idx == 1 else 0.08
-        bottom_ratio = 0.93
+        img_top_ratio, img_bottom_ratio = 0.02, 0.97
 
-        raw_blocks = page.get_text("blocks", sort=True)
-        for b in raw_blocks:
-            x0, y0, x1, y1, text = b[0], b[1], b[2], b[3], (b[4] or "")
-            if not text.strip():
+        page_dict = page.get_text("dict", sort=True)
+        for blk in page_dict.get("blocks", []):
+            if blk.get("type") != 0:  # 0 = text block, 1 = image block
                 continue
-            if y1 < page_h * top_ratio or y0 > page_h * bottom_ratio:
-                continue
-            all_kept_blocks.append((page_idx, text, x0, y0, y1))
-            bucket = round(x0 / 4) * 4
-            margin_counter[bucket] = margin_counter.get(bucket, 0) + 1
+            for line in blk.get("lines", []):
+                x0, y0, _x1, _y1 = line["bbox"]
+                text = "".join(span.get("text", "") for span in line.get("spans", []))
+                if not text.strip():
+                    continue
+                all_lines.append((page_idx, x0, y0, text))
+                bucket = round(x0 / 4) * 4
+                margin_counter[bucket] = margin_counter.get(bucket, 0) + 1
 
         if exam_id and doc_img_dir:
             for img_index, img in enumerate(page.get_images(full=True)):
@@ -622,7 +816,7 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
                     r = img_rects[0]
                     if r.width < 25 or r.height < 25:
                         continue
-                    if r.y1 < page_h * top_ratio or r.y0 > page_h * bottom_ratio:
+                    if r.y1 < page_h * img_top_ratio or r.y0 > page_h * img_bottom_ratio:
                         continue
 
                     base_image = doc.extract_image(xref)
@@ -637,10 +831,19 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
                 except Exception as e:
                     print(f"[PDF Image Extraction Warning] {e}")
 
-            for (iy0, iy1, url) in _render_and_crop_drawings(page, exam_id, page_idx, doc_img_dir, top_ratio, bottom_ratio):
+            for (iy0, iy1, url) in _render_and_crop_drawings(page, exam_id, page_idx, doc_img_dir, img_top_ratio, img_bottom_ratio):
                 all_page_images.append((page_idx, iy0, iy1, url))
 
-    common_margins = {x for x, cnt in margin_counter.items() if cnt >= 2}
+    # Only treat an x0 as a real question/left margin if it's roughly as
+    # common as the single most frequent one — a plain count>=2 threshold is
+    # too easily satisfied by coincidental x-positions of superscript/
+    # subscript fragments (isotope notation, formulas), which would
+    # otherwise falsely qualify as "near the margin".
+    if margin_counter:
+        _max_margin_count = max(margin_counter.values())
+        common_margins = {x for x, cnt in margin_counter.items() if cnt >= max(3, _max_margin_count * 0.5)}
+    else:
+        common_margins = set()
 
     def near_margin(x0):
         if not common_margins:
@@ -648,45 +851,56 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
         bucket = round(x0 / 4) * 4
         return any(abs(bucket - m) <= 12 for m in common_margins)
 
-    q_blocks = []
+    boilerplate_lines = _find_boilerplate_lines(all_lines)
+
+    q_list = []
     current_q = None
-    for (page_idx, text, x0, y0, y1) in all_kept_blocks:
-        cleaned = _join_wrapped_lines(text)
+
+    for (page_idx, x0, y0, text) in all_lines:
+        cleaned = _clean_extracted_line(text)
+        if not cleaned:
+            continue
+        if cleaned in boilerplate_lines:
+            continue
         if _looks_like_header_or_footer(cleaned):
             continue
 
-        lines = text.splitlines()
-        if not lines:
-            continue
-
-        m = _QUESTION_START_RE.match(lines[0])
-        starts_like_option = lines[0].strip().startswith(("A.", "B.", "C.", "D.", "a)", "b)", "c)", "d)"))
-        is_new_question = bool(m) and near_margin(x0) and not starts_like_option
+        m = _QUESTION_START_RE.match(text.strip())
+        starts_like_option = bool(_OPTION_START_RE.match(cleaned)) or cleaned[:2] in ("a)", "b)", "c)", "d)")
+        # A bare "Bài N. <topic>" line before any question has started is
+        # almost always the exam's subject/title line, not a real question.
+        bai_title = current_q is None and _looks_like_bai_title(cleaned)
+        is_new_question = bool(m) and near_margin(x0) and not starts_like_option and not bai_title
 
         if is_new_question:
             if current_q:
-                q_blocks.append(current_q)
+                q_list.append(current_q)
             current_q = {
                 "number": m.group(1),
                 "start_page": page_idx,
                 "y0": y0,
-                "question_text_lines": [m.group(2)] if m.group(2).strip() else lines[1:],
+                "question_text_lines": [m.group(2)] if m.group(2).strip() else [],
                 "option_blocks": [],
+                "in_options": False,
             }
-        elif current_q is not None:
-            has_option_marker = any(_OPTION_START_RE.match(_clean_extracted_line(ln)) for ln in lines)
-            if not current_q["option_blocks"] and not has_option_marker:
-                current_q["question_text_lines"].extend(lines)
-            else:
-                current_q["option_blocks"].append(text)
+            continue
+
+        if current_q is None:
+            continue
+
+        if bool(_OPTION_START_RE.match(cleaned)) or current_q["in_options"]:
+            current_q["in_options"] = True
+            current_q["option_blocks"].append((x0, y0, text))
+        else:
+            current_q["question_text_lines"].append(text)
 
     if current_q:
-        q_blocks.append(current_q)
+        q_list.append(current_q)
 
     all_questions = []
-    for q_idx, q in enumerate(q_blocks):
-        if q_idx + 1 < len(q_blocks):
-            next_page, next_y0 = q_blocks[q_idx + 1]["start_page"], q_blocks[q_idx + 1]["y0"]
+    for q_idx, q in enumerate(q_list):
+        if q_idx + 1 < len(q_list):
+            next_page, next_y0 = q_list[q_idx + 1]["start_page"], q_list[q_idx + 1]["y0"]
         else:
             next_page, next_y0 = 10 ** 9, 0
 
@@ -702,7 +916,8 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
                 continue
             q_imgs.append(url)
 
-        combined_options = "\n".join(q["option_blocks"])
+        ordered_option_texts = _reorder_grid_blocks(q["option_blocks"])
+        combined_options = "\n".join(ordered_option_texts)
         parsed_options = {}
         for letter, value in _parse_option_lines(combined_options):
             if letter not in parsed_options or (value and not parsed_options[letter]):
@@ -712,9 +927,12 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
         if not qtext:
             continue
 
-        if all(k in parsed_options and parsed_options[k] for k in "ABCD"):
+        if parsed_options:
+            # MCQ, even if only some of A-D were actually recovered — better
+            # to surface a partially-filled question for the teacher to
+            # complete via the edit screen than to silently drop it.
             all_questions.append(_make_question_dict(q["number"], qtext, "mcq", parsed_options, q["start_page"], q_imgs))
-        elif not parsed_options:
+        else:
             all_questions.append(_make_question_dict(q["number"], qtext, "essay", {}, q["start_page"], q_imgs))
 
     return all_questions
@@ -728,8 +946,12 @@ def _parse_questions_from_text_generic(raw_text: str):
     starts = []
     for i, line in enumerate(lines):
         m = _QUESTION_START_RE.match(line)
-        if m and not line.strip().startswith(("A.", "B.", "C.", "D.", "a)", "b)", "c)", "d)")):
-            starts.append((i, m.group(1), m.group(2)))
+        cleaned = _clean_extracted_line(line)
+        if not m or cleaned[:2] in ("A.", "B.", "C.", "D.", "a)", "b)", "c)", "d)"):
+            continue
+        if not starts and _looks_like_bai_title(cleaned):
+            continue
+        starts.append((i, m.group(1), m.group(2)))
 
     questions = []
     for idx, (start, number, first_line) in enumerate(starts):
@@ -756,9 +978,10 @@ def _parse_questions_from_text_generic(raw_text: str):
         if not qtext:
             continue
 
-        if all(k in parsed_options and parsed_options[k] for k in "ABCD"):
+        if parsed_options:
+            # Keep partially-recovered MCQs instead of silently dropping them.
             questions.append(_make_question_dict(number, qtext, "mcq", parsed_options, None, []))
-        elif not parsed_options:
+        else:
             questions.append(_make_question_dict(number, qtext, "essay", {}, None, []))
 
     return questions
