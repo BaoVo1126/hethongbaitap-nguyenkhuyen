@@ -10,7 +10,7 @@
       <div class="hint" style="margin-bottom: 1rem;">Môn học: {{ exam['subject'] }}</div>
     {% endif %}
 
-
+    <!-- Form chính đăng ký làm bài -->
     <form method="POST" action="{{ url_for('exam_start', exam_id=exam['id']) }}" id="entry-form">
       <div style="margin-bottom: 1rem;">
         <label style="display: block; font-weight: 600; margin-bottom: 0.3rem;">Họ và tên</label>
@@ -28,7 +28,7 @@
     </form>
   </div>
 
-
+  <!-- BẢNG THÔNG BÁO XÁC NHẬN (MODAL POPUP) -->
   <div id="confirm-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.5); z-index: 9999; align-items: center; justify-content: center;">
     <div style="background: #fff; border-radius: 10px; padding: 1.8rem; width: 90%; max-width: 400px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.2); animation: fadeIn 0.2s ease;">
       <h3 style="margin-top: 0; margin-bottom: 0.8rem; font-size: 1.2rem; color: #222;">Xác nhận làm bài</h3>
@@ -36,7 +36,7 @@
         Bạn có chắc là muốn vào kiểm tra không?
       </p>
       
- 
+      <!-- 2 NÚT HỦY VÀ XÁC NHẬN BÊN DƯỚI -->
       <div style="display: flex; gap: 1rem; justify-content: center;">
         <button type="button" id="btn-cancel" style="flex: 1; padding: 0.7rem; border: 1px solid #ccc; background: #f5f5f5; color: #333; border-radius: 6px; font-weight: 600; cursor: pointer;">
           Hủy
@@ -65,18 +65,23 @@
       var btnCancel = document.getElementById("btn-cancel");
       var btnConfirm = document.getElementById("btn-confirm");
 
+      // Khi bấm vào nút "Bắt đầu làm bài"
       btnOpen.addEventListener("click", function () {
+        // Kiểm tra xem đã điền đủ Họ tên và MSSV chưa
         if (!nameInput.value.trim() || !codeInput.value.trim()) {
-          form.reportValidity(); 
+          form.reportValidity(); // Hiển thị cảnh báo điền form của trình duyệt
           return;
         }
+        // Hiện Modal Popup thông báo xác nhận
         modal.style.display = "flex";
       });
 
+      // Bấm "Hủy" -> Đóng Popup, giữ nguyên thông báo/form điền thông tin
       btnCancel.addEventListener("click", function () {
         modal.style.display = "none";
       });
 
+      // Bấm "Xác nhận" -> Nộp Form và chuyển trực tiếp sang trang làm bài trên cùng tab này
       btnConfirm.addEventListener("click", function () {
         modal.style.display = "none";
         form.submit();
