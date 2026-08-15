@@ -4,7 +4,7 @@
 Giáo viên chỉ cần upload file đề gốc (PDF/DOCX/PPTX/ảnh scan) — hệ thống tự đọc, tách câu hỏi/đáp án/hình ảnh,
 dựng thành bài kiểm tra online, học sinh làm bài và được chấm điểm ngay lập tức.
 
-> Dự án cá nhân, xây dựng và vận hành thực tế cho một trung tâm luyện thi tại TP.HCM, nơi tôi làm trợ giảng.
+> Link demo: https://smartquiz-ai-chi.vercel.app/admin
 
 <!-- 🖼️ TODO: chèn ảnh chụp màn hình (trang học sinh, trang giáo viên, trang kết quả) và link demo tại đây -->
 
