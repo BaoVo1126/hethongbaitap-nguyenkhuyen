@@ -28,7 +28,6 @@
     <input type="file" name="exam_image" accept="image/*,.pdf" required>
     <div class="hint">Hệ thống sẽ tự động bóc tách text từ PDF/Ảnh, tự nhận diện các câu hỏi (kể cả dạng 23.1, 23.2,...) và trích xuất 4 đáp án. Bạn có thể xem lại và chỉnh sửa trước khi đăng.</div>
 
-    <!-- BỔ SUNG: KHỐI CHỌN NGÀY VÀ THỜI GIAN LÀM BÀI TRÊN CÙNG HÀNG -->
     <div style="display: flex; gap: 1rem; margin-top: 0.8rem;">
       <div style="flex: 1;">
         <label>Ngày mở bài (không bắt buộc)</label>
@@ -71,7 +70,6 @@
             </form>
           {% endif %}
 
-          <!-- FORM NÚT XÓA ĐỀ THI MỚI THÊM -->
           <form method="POST" action="{{ url_for('admin_delete_exam', exam_id=e['id']) }}" style="display:inline;" onsubmit="return confirm('Bạn có chắc chắn muốn xóa hẳn đề thi này không? Hành động này không thể hoàn tác!');">
             <button class="btn small danger" type="submit" style="background-color: #dc3545; color: white;">Xóa</button>
           </form>
