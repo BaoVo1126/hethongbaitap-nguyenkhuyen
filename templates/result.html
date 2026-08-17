@@ -1,14 +1,5 @@
 {% extends "base.html" %}
 {% block content %}
-  {# ===================================================================
-     BIỂU ĐỒ NĂNG LỰC -- điều ĐẦU TIÊN học sinh thấy sau khi nộp bài,
-     trước cả ô điểm số. Mỗi lần nộp bài (mọi "Bài") được tính vào chung
-     MỘT biểu đồ theo thời gian (nguồn: ai-agent-lab's
-     GET /api/students/{id}/competency, xem _fetch_competency_timeline()
-     trong app.py). Vẽ bằng SVG thuần (không cần Chart.js/CDN) nên luôn
-     hiển thị được kể cả chạy local không có mạng -- và vì SVG dùng
-     viewBox co giãn theo %, biểu đồ hiển thị giống hệt nhau trên điện
-     thoại và máy tính, chỉ khác kích thước hiển thị. ================= #}
   {% if competency_attempts and competency_attempts|length > 0 %}
     <div class="section-label">Biểu đồ năng lực theo thời gian</div>
     <div class="board" style="padding: 1.2rem 1.4rem 0.6rem; margin-bottom: 1.4rem;">
