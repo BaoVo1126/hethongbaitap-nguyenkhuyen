@@ -56,6 +56,10 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2:latest")  
 
 
+AGENT_LAB_URL = os.environ.get("AGENT_LAB_URL", "http://localhost:8000")
+AGENT_LAB_TIMEOUT = float(os.environ.get("AGENT_LAB_TIMEOUT_SECONDS", "20"))
+
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 if os.environ.get("RENDER") or os.environ.get("VERCEL"):
@@ -91,6 +95,11 @@ app.config["SECRET_KEY"] = "demo-secret-key-doi-khi-deploy-that"
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024  # 32MB
 
 RANDOMIZE_EXAM = True
+
+
+@app.context_processor
+def _inject_agent_lab_url():
+    return {"agent_lab_url": AGENT_LAB_URL}
 
 
 @app.template_filter('from_json')
@@ -198,10 +207,6 @@ def init_db():
     db.commit()
     db.close()
 
-
-# --------------------------------------------------------------------------
-# Pipeline: Deterministic document & Enhanced Image/Question Extractor
-# --------------------------------------------------------------------------
 
 def _clean_extracted_line(line: str) -> str:
     line = line.replace("\u00a0", " ")
@@ -394,7 +399,6 @@ def _pdf_has_real_text(text: str) -> bool:
 
 def extract_text_from_file(file_path: str, exam_id: int = None) -> str:
     ext = os.path.splitext(file_path)[1].lower()
-
     if ext == ".txt":
         return _read_txt(file_path)
 
@@ -460,26 +464,15 @@ def _smart_join_fragments(parts) -> str:
 
 
 _OPTION_START_RE = re.compile(r"^(?:[\$]\s*)?([ABCD])(?![A-Za-zÀ-ỹ])[.\)~:]?\s*(.*)$")
-# Broadened to also accept an optional point-value / note annotation between the
-# question number and the mandatory terminating period, e.g. "Bài 1 (2,0 điểm)."
-# or "Bài 2 (3,0 điểm) - Thực tế." (both seen in real center exam templates),
-# in addition to the plain "Câu 5." / "Bài 3." form.
 _QUESTION_START_RE = re.compile(
     r"^\s*(?:C[âa]u\s+|Bài\s+)?(\d+(?:\.\d+)?)\s*(?:\([^)]{0,40}\))?\s*(?:[-–]\s*[^.\n]{0,30})?\.\s*(.*)$",
     re.IGNORECASE,
 )
-# Matches a marker anywhere inside a line (not just at line-start), so a single
-# extracted line containing several options back-to-back — e.g.
-# "A. 5. B. 6. C. 9. D. 12." (common when a PDF's 2-column option grid gets
-# flattened into one text line) — is still split into its 4 options correctly.
 _INLINE_OPTION_RE = re.compile(r'(?:^|(?<=\s))([ABCD])(?![A-Za-zÀ-ỹ])[.\)~:]\s+(?=\S)')
 _DOTS_ONLY_RE = re.compile(r"^[.\-–—_\s]{4,}$")
 
 
 def _looks_like_bai_title(line: str) -> bool:
-    """True for a bare topic/title line like 'Bài 2. Nguyên tố hóa học'
-    (the exam's subject line, printed once near the top of the document),
-    as opposed to a real tự luận question like 'Bài 1 (2,0 điểm). ...'."""
     m = re.match(r"^\s*bài\s+\d+\.\s*(.*)$", line.strip(), re.IGNORECASE)
     if not m:
         return False
@@ -490,12 +483,6 @@ def _looks_like_bai_title(line: str) -> bool:
 
 
 def _looks_like_all_caps_header(line: str) -> bool:
-    """True for letterhead/title lines such as 'TRUNG TÂM LUYỆN THI NGUYỄN
-    KHUYẾN' or 'MÔN: HÓA HỌC 10' — generalizes across any center name/subject
-    since it only relies on the text being fully uppercase, not specific
-    keywords. Requires at least 2 real (3+ letter) uppercase words so it
-    never mistakes a run of bare option markers (e.g. 'A. 5.  B. 6.') for a
-    header."""
     t = line.strip()
     if not (5 <= len(t) <= 90):
         return False
@@ -507,8 +494,6 @@ def _looks_like_all_caps_header(line: str) -> bool:
 
 
 def _split_line_by_options(line: str):
-    """Split a single line that may contain 1-4 option markers into
-    (letter, text) segments, e.g. 'A. 5. B. 6.' -> [('A','5.'), ('B','6.')]."""
     matches = list(_INLINE_OPTION_RE.finditer(line))
     if not matches:
         return []
@@ -583,9 +568,6 @@ def _looks_like_header_or_footer(text: str) -> bool:
 
     if _DOTS_ONLY_RE.match(t):
         return True
-    # A bare page-number style line (e.g. "- 3 -"), but NOT a lone number on
-    # its own (that would also match stray isotope/formula digits such as a
-    # superscript mass number, which must be kept).
     if re.fullmatch(r"[-–—»\s]*\d+\s*[-–—»]+\s*", t) or re.fullmatch(r"[-–—»]+\s*\d+[-–—»\s]*", t):
         return True
     if re.search(r"\bhotline\b|\bsđt\b|\bđt\b\s*[:.]?\s*\d{7,}", t, re.IGNORECASE):
@@ -602,11 +584,6 @@ def _looks_like_header_or_footer(text: str) -> bool:
 
 
 def _find_boilerplate_lines(all_lines):
-    """Lines that repeat verbatim across the document (e.g. a center's
-    letterhead/address printed on every page, or 'Trang N' footers) are
-    boilerplate regardless of their position on the page. Works for any
-    center name/template since it's purely frequency-based, not keyword-based.
-    `all_lines` is an iterable of (page_idx, x0, y0, text)."""
     from collections import Counter
     counts = Counter()
     for (_page_idx, _x0, _y0, text) in all_lines:
@@ -620,10 +597,6 @@ def _find_boilerplate_lines(all_lines):
 
 
 def _cluster_same_line_fragments(blocks, tol=10):
-    """Merge fragments sitting on the same visual line (e.g. a chemistry
-    symbol plus its superscript/subscript mass number, which PyMuPDF reports
-    as separate text lines with a small y-offset) into one line, ordered
-    left-to-right by x0. `blocks` is a list of (x0, y0, text)."""
     if not blocks:
         return []
     frags = sorted(blocks, key=lambda b: b[1])
@@ -646,17 +619,6 @@ def _cluster_same_line_fragments(blocks, tol=10):
 
 
 def _reorder_grid_blocks(blocks):
-    """blocks: list of (x0, y0, text) fragments belonging to one question's
-    option/answer area, which may be laid out as a multi-column grid (2 or 4
-    columns, common for short MCQ options) where each column's cell can wrap
-    across several separate line fragments. PDF text-extraction order for
-    such grids is often scrambled (columns interleave), so this reconstructs
-    correct reading order in two passes: first merge same-visual-line
-    fragments (handles super/subscript notation), then cluster the resulting
-    lines into columns by x0 and sort each column top-to-bottom. Returns a
-    list of merged per-column text blobs (order across columns doesn't
-    matter for correctness since callers key options by their own A/B/C/D
-    marker, not by position)."""
     if not blocks:
         return []
     lines = _cluster_same_line_fragments(blocks)
@@ -749,33 +711,6 @@ def _make_question_dict(number, qtext, question_type, options, page, image_urls)
 
 
 def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
-    """Parses an exam PDF into a list of question dicts.
-
-    Works at the individual TEXT-LINE level (via PyMuPDF's "dict" text mode,
-    which gives each line its own x/y position) rather than at the coarser
-    "block" level, for two reasons learned from real center exam templates:
-
-    1. A PDF "block" can bundle several questions' worth of lines together
-       when there's no blank-line gap between them, so scanning only a
-       block's first line for a new "Câu N." marker silently swallows every
-       question that starts mid-block. Scanning every line fixes this.
-    2. Two/four-column option grids (A/B on one row, C/D on the next, or a
-       full A-B-C-D row) do not always come out of PDF text extraction in
-       correct reading order — especially when an option's text wraps onto
-       a second line, or when it contains superscript/subscript notation
-       (isotope symbols, chemical formulas). `_reorder_grid_blocks` fixes
-       this using each line's real x/y position rather than trusting
-       extraction order.
-
-    No geometric top/bottom page-margin cropping is applied here: an earlier
-    version cropped a fixed top/bottom percentage of every page to strip
-    repeated headers/footers, but that silently deleted real questions that
-    happened to start right at the top of a page after a page break. Header/
-    footer noise (letterhead, "Họ và tên", "Trang N", ...) is instead
-    filtered by content via `_looks_like_header_or_footer` and
-    `_find_boilerplate_lines` (lines repeated verbatim across pages), which
-    generalizes to any center's letterhead/subject without losing content.
-    """
     if not PDF_AVAILABLE:
         return []
 
@@ -795,7 +730,7 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
 
         page_dict = page.get_text("dict", sort=True)
         for blk in page_dict.get("blocks", []):
-            if blk.get("type") != 0:  # 0 = text block, 1 = image block
+            if blk.get("type") != 0:  
                 continue
             for line in blk.get("lines", []):
                 x0, y0, _x1, _y1 = line["bbox"]
@@ -834,11 +769,6 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
             for (iy0, iy1, url) in _render_and_crop_drawings(page, exam_id, page_idx, doc_img_dir, img_top_ratio, img_bottom_ratio):
                 all_page_images.append((page_idx, iy0, iy1, url))
 
-    # Only treat an x0 as a real question/left margin if it's roughly as
-    # common as the single most frequent one — a plain count>=2 threshold is
-    # too easily satisfied by coincidental x-positions of superscript/
-    # subscript fragments (isotope notation, formulas), which would
-    # otherwise falsely qualify as "near the margin".
     if margin_counter:
         _max_margin_count = max(margin_counter.values())
         common_margins = {x for x, cnt in margin_counter.items() if cnt >= max(3, _max_margin_count * 0.5)}
@@ -867,8 +797,6 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
 
         m = _QUESTION_START_RE.match(text.strip())
         starts_like_option = bool(_OPTION_START_RE.match(cleaned)) or cleaned[:2] in ("a)", "b)", "c)", "d)")
-        # A bare "Bài N. <topic>" line before any question has started is
-        # almost always the exam's subject/title line, not a real question.
         bai_title = current_q is None and _looks_like_bai_title(cleaned)
         is_new_question = bool(m) and near_margin(x0) and not starts_like_option and not bai_title
 
@@ -928,9 +856,6 @@ def _extract_questions_from_pdf_layout(file_path: str, exam_id: int = None):
             continue
 
         if parsed_options:
-            # MCQ, even if only some of A-D were actually recovered — better
-            # to surface a partially-filled question for the teacher to
-            # complete via the edit screen than to silently drop it.
             all_questions.append(_make_question_dict(q["number"], qtext, "mcq", parsed_options, q["start_page"], q_imgs))
         else:
             all_questions.append(_make_question_dict(q["number"], qtext, "essay", {}, q["start_page"], q_imgs))
@@ -1130,9 +1055,6 @@ def parse_questions_pipeline(raw_text: str, file_path: str = None, exam_id: int 
 def parse_questions_from_text_regex(raw_text: str):
     return _parse_questions_from_text_generic(raw_text)
 
-# --------------------------------------------------------------------------
-# Randomizer & Grading
-# --------------------------------------------------------------------------
 
 _GRADE_SUFFIX_RE = re.compile(r"(10|11|12)\s*$")
 
@@ -1257,6 +1179,46 @@ def generate_test(exam_id: int, student_name: str, student_code: str, num_questi
     return cur.lastrowid
 
 
+def _record_competency_attempt(student_id: str, student_name: str, subject: str, exam_title: str, score: int, total: int) -> None:
+    if total <= 0:
+        return
+    payload = {
+        "student_id": student_id,
+        "student_name": student_name,
+        "subject": subject or "Chưa phân loại",
+        "exam_title": exam_title,
+        "topic_scores": {exam_title: round(100.0 * score / total, 1)},
+        "correct_count": score,
+        "total_questions": total,
+    }
+    try:
+        requests.post(f"{AGENT_LAB_URL}/api/attempts", json=payload, timeout=AGENT_LAB_TIMEOUT)
+    except requests.RequestException as exc:
+        app.logger.warning("competency tracking unavailable (ai-agent-lab offline?): %s", exc)
+
+
+def _fetch_competency_timeline(student_id: str, subject: str | None = None) -> list:
+    try:
+        params = {"subject": subject} if subject else {}
+        res = requests.get(f"{AGENT_LAB_URL}/api/students/{student_id}/competency", params=params, timeout=AGENT_LAB_TIMEOUT)
+        res.raise_for_status()
+        return res.json().get("attempts", [])
+    except requests.RequestException as exc:
+        app.logger.warning("competency chart unavailable (ai-agent-lab offline?): %s", exc)
+        return []
+
+
+def _fetch_class_competency(subject: str | None = None) -> dict:
+    try:
+        params = {"subject": subject} if subject else {}
+        res = requests.get(f"{AGENT_LAB_URL}/api/teacher/class-competency", params=params, timeout=AGENT_LAB_TIMEOUT)
+        res.raise_for_status()
+        return res.json().get("topic_averages", {})
+    except requests.RequestException as exc:
+        app.logger.warning("class competency unavailable (ai-agent-lab offline?): %s", exc)
+        return {}
+
+
 def _normalize_answer_text(s: str) -> str:
     if s is None:
         return ""
@@ -1335,11 +1297,6 @@ def grade_submission(test_row, answers: dict):
         )
 
     return score, total_gradable, results
-
-
-# --------------------------------------------------------------------------
-# Web Routes
-# --------------------------------------------------------------------------
 
 @app.route("/")
 def home():
@@ -1465,6 +1422,16 @@ def submit_test(test_id):
     db.commit()
     submission_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
 
+    exam = db.execute("SELECT * FROM exams WHERE id = ?", (test["exam_id"],)).fetchone()
+    _record_competency_attempt(
+        student_id=test["student_code"],
+        student_name=test["student_name"],
+        subject=exam["subject"] if exam else None,
+        exam_title=exam["title"] if exam else "Bài kiểm tra",
+        score=score,
+        total=total,
+    )
+
     return redirect(url_for("result", submission_id=submission_id))
 
 
@@ -1479,6 +1446,8 @@ def result(submission_id):
 
     answers = json.loads(submission["answers"])
     _, _, results = grade_submission(test, answers)
+
+    competency_attempts = _fetch_competency_timeline(test["student_code"])
 
     duration_str = None
     try:
@@ -1498,6 +1467,7 @@ def result(submission_id):
         submission=submission,
         results=results,
         duration_str=duration_str,
+        competency_attempts=competency_attempts,
         active="kiemtra",
     )
 
@@ -1510,7 +1480,7 @@ def verify_teacher_pass():
     if password_input == TEACHER_PASSWORD:
         return redirect(next_url)
     else:
-        flash("❌ Mật khẩu giáo viên không chính xác. Vui lòng thử lại!")
+        flash("Mật khẩu giáo viên không chính xác. Vui lòng thử lại!")
         return redirect(request.referrer or url_for("home"))
 
 
@@ -1648,9 +1618,35 @@ def admin_update_time_limit(exam_id):
     return redirect(url_for("admin_edit_exam", exam_id=exam_id))
 
 
+def _save_all_question_fields(db, exam_id, form):
+
+    question_ids = form.getlist("question_ids")
+    for qid in question_ids:
+        q_text = form.get(f"question_text_{qid}", "").strip()
+        opt_a = form.get(f"option_a_{qid}", "").strip()
+        opt_b = form.get(f"option_b_{qid}", "").strip()
+        opt_c = form.get(f"option_c_{qid}", "").strip()
+        opt_d = form.get(f"option_d_{qid}", "").strip()
+        correct = form.get(f"correct_answer_{qid}", "").strip().upper() or None
+        correct_text = form.get(f"correct_answer_text_{qid}", "").strip() or None
+        db.execute(
+            """
+            UPDATE questions
+            SET question_text=?, option_a=?, option_b=?, option_c=?, option_d=?,
+                correct_answer=?, correct_answer_text=?
+            WHERE id=? AND exam_id=?
+            """,
+            (q_text, opt_a, opt_b, opt_c, opt_d, correct, correct_text, qid, exam_id),
+        )
+    db.commit()
+    return len(question_ids)
+
+
 @app.route("/admin/exam/<int:exam_id>/add_question", methods=["POST"])
 def admin_add_question(exam_id):
     db = get_db()
+    _save_all_question_fields(db, exam_id, request.form)  # keep every other question's in-progress edits
+
     q_type = request.form.get("question_type", "mcq")
     if q_type not in ("mcq", "essay"):
         q_type = "mcq"
@@ -1674,6 +1670,8 @@ def admin_toggle_question_type(question_id):
     q = db.execute("SELECT * FROM questions WHERE id=?", (question_id,)).fetchone()
     if not q:
         abort(404)
+    _save_all_question_fields(db, q["exam_id"], request.form)  # keep every other question's in-progress edits
+
     new_type = "essay" if q["question_type"] == "mcq" else "mcq"
     if new_type == "mcq":
         db.execute(
@@ -1718,29 +1716,8 @@ def admin_update_question(question_id):
 @app.route("/admin/exam/<int:exam_id>/save_all_questions", methods=["POST"])
 def admin_save_all_questions(exam_id):
     db = get_db()
-    question_ids = request.form.getlist("question_ids")
-
-    for qid in question_ids:
-        q_text = request.form.get(f"question_text_{qid}", "").strip()
-        opt_a = request.form.get(f"option_a_{qid}", "").strip()
-        opt_b = request.form.get(f"option_b_{qid}", "").strip()
-        opt_c = request.form.get(f"option_c_{qid}", "").strip()
-        opt_d = request.form.get(f"option_d_{qid}", "").strip()
-        correct = request.form.get(f"correct_answer_{qid}", "").strip().upper() or None
-        correct_text = request.form.get(f"correct_answer_text_{qid}", "").strip() or None
-
-        db.execute(
-            """
-            UPDATE questions
-            SET question_text=?, option_a=?, option_b=?, option_c=?, option_d=?,
-                correct_answer=?, correct_answer_text=?
-            WHERE id=? AND exam_id=?
-            """,
-            (q_text, opt_a, opt_b, opt_c, opt_d, correct, correct_text, qid, exam_id)
-        )
-
-    db.commit()
-    flash(f"Đã lưu thành công toàn bộ {len(question_ids)} câu hỏi!")
+    n = _save_all_question_fields(db, exam_id, request.form)
+    flash(f"Đã lưu thành công toàn bộ {n} câu hỏi!")
     return redirect(url_for("admin_edit_exam", exam_id=exam_id))
 
 
@@ -1750,6 +1727,7 @@ def admin_delete_question(question_id):
     q = db.execute("SELECT * FROM questions WHERE id=?", (question_id,)).fetchone()
     if not q:
         abort(404)
+    _save_all_question_fields(db, q["exam_id"], request.form)  # keep every other question's in-progress edits
     db.execute("DELETE FROM questions WHERE id=?", (question_id,))
     db.commit()
     return redirect(url_for("admin_edit_exam", exam_id=q["exam_id"]))
@@ -1760,7 +1738,8 @@ def admin_delete_question_image(question_id):
     q = db.execute("SELECT * FROM questions WHERE id=?", (question_id,)).fetchone()
     if not q:
         abort(404)
-        
+    _save_all_question_fields(db, q["exam_id"], request.form)  # keep every other question's in-progress edits
+
     image_url_to_delete = request.form.get("image_url", "").strip()
     if image_url_to_delete and q["image_urls"]:
         try:
@@ -1823,6 +1802,31 @@ def admin_exam_submissions(exam_id):
     ).fetchall()
     return render_template(
         "admin_submissions.html", center_name=CENTER_NAME, exam=exam, rows=rows, active="admin", admin_tab="exams",
+    )
+
+
+@app.route("/admin/competency")
+def admin_competency():
+    """Teacher-side aggregate competency view -- per-topic (per-bài)
+    average across every student's latest attempt, sourced from
+    ai-agent-lab's GET /api/teacher/class-competency. Subject filter uses
+    the same `exams.subject` values already in this DB, no new schema."""
+    db = get_db()
+    subjects = [
+        r["subject"] for r in db.execute(
+            "SELECT DISTINCT subject FROM exams WHERE subject IS NOT NULL AND subject != '' ORDER BY subject"
+        ).fetchall()
+    ]
+    selected_subject = request.args.get("subject") or None
+    topic_averages = _fetch_class_competency(subject=selected_subject)
+    return render_template(
+        "admin_competency.html",
+        center_name=CENTER_NAME,
+        admin_tab="competency",
+        subjects=subjects,
+        selected_subject=selected_subject,
+        topic_averages=topic_averages,
+        active="admin",
     )
 
 
@@ -1959,11 +1963,7 @@ def serve_document(filename):
 def serve_extracted_images(filename):
     return send_from_directory(EXTRACTED_IMAGES_DIR, filename)
 
-
-# --- KHỎI TẠO CƠ SỞ DỮ LIỆU ---
 init_db()
-
-
 if __name__ == "__main__":
     if PDF_AVAILABLE:
         print("-> Document Parser (PyMuPDF) đã sẵn sàng.")
