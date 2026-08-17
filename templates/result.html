@@ -1,5 +1,54 @@
 {% extends "base.html" %}
 {% block content %}
+  {# ===================================================================
+     BIỂU ĐỒ NĂNG LỰC -- điều ĐẦU TIÊN học sinh thấy sau khi nộp bài,
+     trước cả ô điểm số. Mỗi lần nộp bài (mọi "Bài") được tính vào chung
+     MỘT biểu đồ theo thời gian (nguồn: ai-agent-lab's
+     GET /api/students/{id}/competency, xem _fetch_competency_timeline()
+     trong app.py). Vẽ bằng SVG thuần (không cần Chart.js/CDN) nên luôn
+     hiển thị được kể cả chạy local không có mạng -- và vì SVG dùng
+     viewBox co giãn theo %, biểu đồ hiển thị giống hệt nhau trên điện
+     thoại và máy tính, chỉ khác kích thước hiển thị. ================= #}
+  {% if competency_attempts and competency_attempts|length > 0 %}
+    <div class="section-label">Biểu đồ năng lực theo thời gian</div>
+    <div class="board" style="padding: 1.2rem 1.4rem 0.6rem; margin-bottom: 1.4rem;">
+      {% set n = competency_attempts|length %}
+      {% set chart_w = 640 %}
+      {% set chart_h = 200 %}
+      {% set pad_x = 34 %}
+      {% set pad_top = 16 %}
+      {% set plot_h = 150 %}
+      <svg viewBox="0 0 {{ chart_w }} {{ chart_h }}" style="width: 100%; height: auto; display: block;" role="img" aria-label="Biểu đồ điểm số theo thời gian">
+        <!-- lưới ngang 0/50/100% -->
+        {% for pct in [0, 50, 100] %}
+          {% set y = pad_top + plot_h - (pct / 100 * plot_h) %}
+          <line x1="{{ pad_x }}" y1="{{ y }}" x2="{{ chart_w - 10 }}" y2="{{ y }}" stroke="var(--paper-line)" stroke-width="1" />
+          <text x="4" y="{{ y + 4 }}" font-size="10" fill="var(--ink-soft)">{{ pct }}%</text>
+        {% endfor %}
+
+        <!-- đường nối các lần làm bài -->
+        <polyline
+          fill="none" stroke="var(--header-red)" stroke-width="2.5"
+          points="{% for a in competency_attempts %}{{ pad_x + (loop.index0 * ((chart_w - pad_x - 20) / ((n - 1) if n > 1 else 1))) }},{{ pad_top + plot_h - (a['score_pct'] / 100 * plot_h) }}{% if not loop.last %} {% endif %}{% endfor %}"
+        />
+
+        <!-- từng điểm, kèm tooltip tên bài + điểm khi rê chuột/chạm -->
+        {% for a in competency_attempts %}
+          {% set cx = pad_x + (loop.index0 * ((chart_w - pad_x - 20) / ((n - 1) if n > 1 else 1))) %}
+          {% set cy = pad_top + plot_h - (a['score_pct'] / 100 * plot_h) %}
+          {% set is_current = (a['exam_title'] == exam['title'] and loop.last) %}
+          <circle cx="{{ cx }}" cy="{{ cy }}" r="{{ 6 if is_current else 4 }}" fill="{{ 'var(--header-red)' if is_current else 'var(--board-green)' }}" stroke="#fff" stroke-width="1.5">
+            <title>{{ a['exam_title'] }} — {{ "%.1f"|format(a['score_pct']) }}% ({{ a['taken_at'][:10] }})</title>
+          </circle>
+        {% endfor %}
+      </svg>
+      <div class="hint" style="margin-top: 0.4rem; margin-bottom: 0.8rem;">
+        Chấm tròn <strong style="color: var(--header-red);">đỏ</strong> = bài vừa nộp. Rê chuột/chạm vào từng điểm để xem tên bài.
+        Tổng cộng {{ n }} lần làm bài đã ghi nhận.
+      </div>
+    </div>
+  {% endif %}
+
   <div class="stub">
     {% if submission['total'] and submission['total'] > 0 %}
     <div class="score-big" style="color: #dc2626; font-size: 2.8rem; font-weight: 800; margin-bottom: 0.2rem;">
