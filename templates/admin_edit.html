@@ -104,7 +104,6 @@
     margin-top: 0.3rem;
   }
 
-  /* STYLES HIỂN THỊ HÌNH ẢNH CÂU HỎI & NÚT XÓA ẢNH */
   .question-images-preview {
     display: flex;
     flex-wrap: wrap;
@@ -216,7 +215,6 @@
       <label>Nội dung câu hỏi</label>
       <textarea class="q-text-input" name="question_text_{{ q['id'] }}">{{ q['question_text'] }}</textarea>
 
-      <!-- BỔ SUNG: HIỂN THỊ HÌNH ẢNH / BIỂU ĐỒ TRÍCH XUẤT NẾU CÓ CÙNG NÚT XÓA -->
       {% if q['image_urls'] %}
         {% set img_list = q['image_urls']|from_json %}
         {% if img_list and img_list|length > 0 %}
@@ -226,7 +224,6 @@
               <div class="img-item-wrapper">
                 <img src="{{ img_url if img_url.startswith('/') else url_for('static', filename=img_url) }}" alt="Hình minh họa câu {{ loop.index }}">
                 
-                <!-- Form nút xóa từng ảnh đính kèm -->
                 <button type="submit" 
                         class="btn-delete-img"
                         formaction="{{ url_for('admin_delete_question_image', question_id=q['id']) }}"
@@ -266,23 +263,32 @@
   {% endfor %}
 
   <button class="btn" type="submit">Lưu toàn bộ thay đổi</button>
+
+  <div style="margin-top:1rem; display:flex; gap:0.6rem; flex-wrap:wrap;">
+    <button class="btn secondary" type="submit"
+            formaction="{{ url_for('admin_add_question', exam_id=exam['id']) }}" formnovalidate
+            name="question_type" value="mcq">+ Thêm câu trắc nghiệm</button>
+    <button class="btn secondary" type="submit"
+            formaction="{{ url_for('admin_add_question', exam_id=exam['id']) }}" formnovalidate
+            name="question_type" value="essay">+ Thêm câu tự luận</button>
+  </div>
 </form>
 {% else %}
   <div class="board">
     <div class="empty-note">Chưa có câu hỏi nào cho đề này. Hãy thêm câu hỏi thủ công bên dưới.</div>
   </div>
-{% endif %}
 
-<div style="margin-top:1rem; display:flex; gap:0.6rem; flex-wrap:wrap;">
-  <form method="POST" action="{{ url_for('admin_add_question', exam_id=exam['id']) }}">
-    <input type="hidden" name="question_type" value="mcq">
-    <button class="btn secondary" type="submit">+ Thêm câu trắc nghiệm</button>
-  </form>
-  <form method="POST" action="{{ url_for('admin_add_question', exam_id=exam['id']) }}">
-    <input type="hidden" name="question_type" value="essay">
-    <button class="btn secondary" type="submit">+ Thêm câu tự luận</button>
-  </form>
-</div>
+  <div style="margin-top:1rem; display:flex; gap:0.6rem; flex-wrap:wrap;">
+    <form method="POST" action="{{ url_for('admin_add_question', exam_id=exam['id']) }}">
+      <input type="hidden" name="question_type" value="mcq">
+      <button class="btn secondary" type="submit">+ Thêm câu trắc nghiệm</button>
+    </form>
+    <form method="POST" action="{{ url_for('admin_add_question', exam_id=exam['id']) }}">
+      <input type="hidden" name="question_type" value="essay">
+      <button class="btn secondary" type="submit">+ Thêm câu tự luận</button>
+    </form>
+  </div>
+{% endif %}
 
 {% if exam['raw_ocr_text'] %}
   <details style="margin-top:1.6rem;">
