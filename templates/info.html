@@ -14,7 +14,7 @@
           <tr style="border-bottom: 2px solid #eee; background-color: #f8f9fa;">
             <th style="padding: 0.8rem;">#</th>
             <th style="padding: 0.8rem;">Họ &amp; Tên học sinh</th>
-            <th style="padding: 0.8rem;">Mã số (MSSV)</th>
+            <th style="padding: 0.8rem;">Mã số</th>
             <th style="padding: 0.8rem;">Tên bài kiểm tra</th>
             <th style="padding: 0.8rem; text-align: center;">Điểm số</th>
             <th style="padding: 0.8rem; text-align: center;">Thời gian làm</th>
@@ -40,7 +40,6 @@
               <td style="padding: 0.8rem; text-align: center; color: #444;">{{ h['duration'] }}</td>
               <td style="padding: 0.8rem; text-align: center; color: #666; font-size: 0.85rem;">{{ h['submitted_at'] }}</td>
               
-              <!-- CỘT NÚT XÓA: Sử dụng data-url và data-name giúp VS Code không bị gạch đỏ -->
               <td style="padding: 0.8rem; text-align: center;">
                 <button type="button" 
                         class="btn-delete-sub"
@@ -61,7 +60,6 @@
     {% endif %}
   </div>
 
-  <!-- POPUP XÁC NHẬN XÓA (MODAL) -->
   <div id="delete-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.5); z-index: 9999; align-items: center; justify-content: center;">
     <div style="background: #fff; border-radius: 10px; padding: 1.8rem; width: 90%; max-width: 380px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.2); animation: fadeIn 0.2s ease;">
       <h3 style="margin-top: 0; margin-bottom: 0.8rem; font-size: 1.15rem; color: #222;">Xác nhận xóa bài làm</h3>
