@@ -10,20 +10,17 @@
       {% set pad_top = 16 %}
       {% set plot_h = 150 %}
       <svg viewBox="0 0 {{ chart_w }} {{ chart_h }}" style="width: 100%; height: auto; display: block;" role="img" aria-label="Biểu đồ điểm số theo thời gian">
-        <!-- lưới ngang 0/50/100% -->
         {% for pct in [0, 50, 100] %}
           {% set y = pad_top + plot_h - (pct / 100 * plot_h) %}
           <line x1="{{ pad_x }}" y1="{{ y }}" x2="{{ chart_w - 10 }}" y2="{{ y }}" stroke="var(--paper-line)" stroke-width="1" />
           <text x="4" y="{{ y + 4 }}" font-size="10" fill="var(--ink-soft)">{{ pct }}%</text>
         {% endfor %}
 
-        <!-- đường nối các lần làm bài -->
         <polyline
           fill="none" stroke="var(--header-red)" stroke-width="2.5"
           points="{% for a in competency_attempts %}{{ pad_x + (loop.index0 * ((chart_w - pad_x - 20) / ((n - 1) if n > 1 else 1))) }},{{ pad_top + plot_h - (a['score_pct'] / 100 * plot_h) }}{% if not loop.last %} {% endif %}{% endfor %}"
         />
 
-        <!-- từng điểm, kèm tooltip tên bài + điểm khi rê chuột/chạm -->
         {% for a in competency_attempts %}
           {% set cx = pad_x + (loop.index0 * ((chart_w - pad_x - 20) / ((n - 1) if n > 1 else 1))) %}
           {% set cy = pad_top + plot_h - (a['score_pct'] / 100 * plot_h) %}
