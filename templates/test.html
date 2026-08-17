@@ -4,7 +4,6 @@
 
 {% block content %}
 <style>
-  /* CẤU TRÚC GIAO DIỆN TRÊN MÁY TÍNH (KEEP ORIGINAL DESKTOP STYLES) */
   .test-container {
     max-width: 900px;
     margin: 0 auto;
@@ -38,7 +37,6 @@
     color: #4a5568;
   }
 
-  /* THANH THỜI GIAN VÀ NỘP BÀI */
   .timer-sticky-bar {
     position: sticky;
     top: 10px;
@@ -79,7 +77,6 @@
     background: #96392e;
   }
 
-  /* DANH SÁCH CÂU HỎI */
   .question-card {
     background: #ffffff;
     border: 1px solid #e2e8f0;
@@ -97,7 +94,6 @@
     line-height: 1.5;
   }
 
-  /* KHU VỰC HIỂN THỊ HÌNH ẢNH CÂU HỎI */
   .question-images {
     margin: 1rem 0;
     text-align: center;
@@ -168,7 +164,7 @@
     background: #fafafa;
     resize: vertical;
     box-sizing: border-box;
-    -webkit-appearance: none;
+    appearance: none;
   }
 
   .essay-textarea:focus {
@@ -177,7 +173,7 @@
     background: #ffffff;
   }
 
-  /* POPUP MÔ TẢ CẢNH BÁO THOÁT BÀI LÀM */
+
   .exit-warning-overlay {
     display: none;
     position: fixed;
@@ -265,7 +261,6 @@
     to { opacity: 1; transform: scale(1); }
   }
 
-  /* TỐI ƯU HÓA DÀNH RIÊNG CHO MÀN HÌNH ĐIỆN THOẠI (MOBILE FIX) */
   @media (max-width: 768px) {
     .test-container {
       padding: 0.5rem 0.25rem 4rem 0.25rem;
@@ -327,7 +322,6 @@
 
 <div class="test-container">
   
-  <!-- CẠO ĐẦU TRANG BÀI THI -->
   <div class="test-header-card">
     <div class="test-title">📝 {{ exam.title }}</div>
     <div class="student-info-bar">
@@ -340,8 +334,6 @@
   </div>
 
   <form id="exam-form" method="POST" action="{{ url_for('submit_test', test_id=test.id) }}">
-    
-    <!-- THANH ĐỒNG HỒ & NÚT NỘP BÀI -->
     <div class="timer-sticky-bar">
       <div class="timer-box">
         <span>⏱️</span>
@@ -358,7 +350,6 @@
       </button>
     </div>
 
-    <!-- DANH SÁCH CÂU HỎI -->
     <div class="questions-wrapper">
       {% for q in questions %}
         <div class="question-card" id="q-card-{{ q.id }}">
@@ -366,7 +357,6 @@
             <strong>Câu {{ q.index }}:</strong> {{ q.question_text }}
           </div>
 
-          <!-- HIỂN THỊ HÌNH ẢNH NẾU CÓ CẮT / TRÍCH XUẤT TỪ ĐỀ THI -->
           {% if q.image_urls %}
             {% set img_list = q.image_urls|from_json %}
             {% if img_list and img_list|length > 0 %}
@@ -408,7 +398,7 @@
   </form>
 </div>
 
-<!-- HỘP THOẠI XÁC NHẬN CẢNH BÁO THOÁT BÀI LÀM -->
+
 <div id="exit-warning-modal" class="exit-warning-overlay">
   <div class="exit-warning-card">
     <div class="exit-warning-icon">⚠️</div>
@@ -416,7 +406,7 @@
     <p>Bạn có chắc chắn muốn rời khỏi bài kiểm tra này không?</p>
     
     <div class="exit-warning-note">
-      📌 <strong>Ghi chú:</strong> Thoát bài làm là nộp bài! Hệ thống sẽ lập tức chấm điểm và ghi vào lịch sử làm bài.
+       <strong>Ghi chú:</strong> Thoát bài làm là nộp bài! Hệ thống sẽ lập tức chấm điểm và ghi vào lịch sử làm bài.
     </div>
 
     <div class="exit-warning-actions">
@@ -431,7 +421,6 @@
 </div>
 
 <script>
-  // QUẢN LÝ THỜI GIAN LÀM BÀI AN TOÀN
   var timeLimitMinutes = {{ exam.time_limit_minutes if exam.time_limit_minutes else 0 }};
   var totalSeconds = timeLimitMinutes * 60;
   var timerInterval = null;
@@ -443,7 +432,6 @@
     
     if (timerInterval) clearInterval(timerInterval);
     
-    // Gửi form lên server để lưu vào DB và chuyển hướng sang Lịch sử làm bài
     document.getElementById('exam-form').submit();
   }
 
@@ -464,7 +452,7 @@
       var s = totalSeconds % 60;
       display.textContent = (m < 10 ? "0" + m : m) + ":" + (s < 10 ? "0" + s : s);
       
-      if (totalSeconds <= 300) { // Đổi màu cảnh báo 5 phút cuối
+      if (totalSeconds <= 300) { 
         display.style.color = "#e53e3e";
       }
     }, 1000);
@@ -485,9 +473,6 @@
     }
   }
 
-  // --- BỘ GIÁM SÁT THOÁT TRANG / CHUYỂN TAB ---
-
-  // 1. Cảnh báo khi tắt tab, tải lại trang hoặc bấm nút Back
   window.addEventListener('beforeunload', function (e) {
     if (!isSubmitting) {
       var confirmationMessage = 'Bạn có muốn thoát khỏi bài làm không?\n\nGhi chú: Thoát bài làm là nộp bài!';
@@ -496,15 +481,12 @@
     }
   });
 
-  // 2. Tự động bật Hộp thoại cảnh báo hoặc Nộp bài khi phát hiện chuyển sang Tab/Ứng dụng khác
   document.addEventListener('visibilitychange', function () {
     if (document.hidden && !isSubmitting) {
-      // Khi học sinh ẩn/chuyển tab, tự động chấm điểm & nộp bài lưu vào lịch sử
       forceSubmitExam();
     }
   });
 
-  // Khởi động đếm ngược khi trang đã tải xong
   window.addEventListener('DOMContentLoaded', function() {
     startTimer();
   });
