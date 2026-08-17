@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+  {% include "_admin_tabs.html" %}
+
+  <div class="section-label">Năng lực học sinh theo chủ đề (Bài)</div>
+
+  <form method="GET" action="{{ url_for('admin_competency') }}" style="margin-bottom: 1rem; display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap;">
+    <label style="margin: 0; font-weight: 600;">Môn học</label>
+    <select name="subject" onchange="this.form.submit()" style="padding: 0.5rem; border: 1px solid var(--paper-line); border-radius: 8px;">
+      <option value="">Tất cả</option>
+      {% for s in subjects %}
+        <option value="{{ s }}" {{ 'selected' if s == selected_subject else '' }}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </form>
+
+  <div class="board" style="padding: 1.2rem 1.4rem;">
+    {% if not topic_averages %}
+      <div class="hint">
+        Chưa có dữ liệu năng lực (học sinh chưa nộp bài nào, hoặc dịch vụ AI Agent Lab chưa chạy).
+        Kiểm tra biến môi trường <code>AGENT_LAB_URL</code>.
+      </div>
+    {% else %}
+      {% for topic, avg in topic_averages.items()|sort %}
+        {% set color = '#2f7a45' if avg >= 70 else ('#d97706' if avg >= 50 else '#b5473a') %}
+        <div style="margin-bottom: 1rem;">
+          <div style="display: flex; justify-content: space-between; font-size: 0.9rem; font-weight: 600; margin-bottom: 0.3rem;">
+            <span>{{ topic }}</span>
+            <span style="color: {{ color }};">{{ "%.1f"|format(avg) }}%</span>
+          </div>
+          <div style="background: #eee9e4; border-radius: 999px; height: 14px; overflow: hidden;">
+            <div style="width: {{ avg }}%; background: {{ color }}; height: 100%; border-radius: 999px; transition: width 0.4s ease;"></div>
+          </div>
+        </div>
+      {% endfor %}
+    {% endif %}
+  </div>
+
+  <div class="hint" style="margin-top: 0.8rem;">
+    Điểm trung bình theo chủ đề (Bài), tính trên lần làm bài gần nhất của mỗi học sinh.
+    Muốn xem chi tiết năng lực của một học sinh cụ thể theo thời gian, xem biểu đồ ở
+    ngay đầu trang kết quả sau khi học sinh đó nộp bài.
+  </div>
+{% endblock %}
