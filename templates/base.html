@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}{{ center_name }}{% endblock %}</title>
   
-  <!-- Font chữ Inter chuẩn các ứng dụng EdTech -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   
@@ -13,10 +12,6 @@
     body {
       font-family: 'Inter', system-ui, -apple-system, sans-serif;
     }
-
-    /* =========================================================
-       TOPBAR PHONG CÁCH AZOTA REDESIGN
-       ========================================================= */
     .topbar {
       background: linear-gradient(135deg, #b91c1c 0%, #dc2626 50%, #ef4444 100%) !important;
       background-size: 200% 200%;
@@ -48,10 +43,6 @@
     .topbar-right-zone {
       justify-self: end;
     }
-
-    /* Điều hướng chính (Kiểm tra / Tài liệu): canh giữa tuyệt đối trên header,
-       nền viên thuốc bo tròn với 1 khối trượt (slider) chạy theo mục đang
-       chọn/hover — lấy cảm hứng từ segmented control kiểu iOS. */
     .topbar-nav {
       position: relative;
       justify-self: center;
@@ -100,7 +91,6 @@
       .topbar-nav { display: none; }
     }
 
-    /* CHỈNH SỬA: Khối Brand bọc Logo + Tên (Click về trang chủ & Hiệu ứng Hover Phóng to) */
     .brand-link {
       display: flex;
       align-items: center;
@@ -115,7 +105,6 @@
       transform: scale(1.06);
     }
 
-    /* Logo Icon kiểu Azota với viền phát sáng */
     .brand-mark {
       width: 42px;
       height: 42px;
@@ -512,6 +501,123 @@
       from { opacity: 0; transform: translateY(12px); }
       to { opacity: 1; transform: translateY(0); }
     }
+
+    /* =========================================================
+       AI TUTOR WIDGET -- có mặt trên MỌI trang (đặt trong base.html)
+       nên giao diện chính vẫn giữ nguyên phần bài tập như cũ, chỉ THÊM
+       nút mở gia sư AI, không thay thế gì. Cùng MỘT cấu trúc DOM cho cả
+       điện thoại và máy tính -- không có nội dung nào bị ẩn/khác nhau
+       giữa hai kích thước màn hình, chỉ đổi cách bố trí (panel nổi góc
+       phải trên máy tính, toàn màn hình trên điện thoại), theo đúng
+       nguyên tắc responsive mà sidebar ở trên đã dùng.
+       ========================================================= */
+    .tutor-fab {
+      position: fixed;
+      right: 1.4rem;
+      bottom: 1.4rem;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #b91c1c 0%, #dc2626 50%, #ef4444 100%);
+      color: #fff;
+      border: none;
+      box-shadow: 0 6px 20px rgba(185, 28, 28, 0.4);
+      font-size: 1.5rem;
+      cursor: pointer;
+      z-index: 1010;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.2s ease;
+    }
+    .tutor-fab:hover { transform: scale(1.08); }
+
+    .tutor-panel {
+      position: fixed;
+      right: 1.4rem;
+      bottom: 5.4rem;
+      width: 380px;
+      max-width: calc(100vw - 2rem);
+      height: 520px;
+      max-height: calc(100vh - 7rem);
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      z-index: 1015;
+      border: 1px solid var(--paper-line);
+    }
+    .tutor-panel.open { display: flex; }
+
+    /* Điện thoại: panel chiếm toàn màn hình thay vì một ô nổi nhỏ --
+       cùng nội dung/cùng chức năng, chỉ khác cách chiếm không gian. */
+    @media (max-width: 560px) {
+      .tutor-panel {
+        right: 0; left: 0; bottom: 0; top: 0;
+        width: 100%; max-width: 100%; height: 100%; max-height: 100%;
+        border-radius: 0;
+      }
+      .tutor-fab { right: 1rem; bottom: 1rem; }
+    }
+
+    .tutor-header {
+      background: linear-gradient(135deg, #b91c1c 0%, #dc2626 100%);
+      color: #fff;
+      padding: 0.9rem 1.1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .tutor-header strong { font-size: 0.98rem; }
+    .tutor-header .tutor-sub { font-size: 0.75rem; opacity: 0.85; display: block; margin-top: 0.1rem; }
+    .tutor-close { background: none; border: none; color: #fff; font-size: 1.2rem; cursor: pointer; line-height: 1; padding: 0.2rem; }
+
+    .tutor-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.7rem;
+      background: #fafafa;
+    }
+    .tutor-msg { max-width: 88%; padding: 0.6rem 0.85rem; border-radius: 12px; font-size: 0.9rem; line-height: 1.45; white-space: pre-wrap; }
+    .tutor-msg.user { align-self: flex-end; background: var(--header-red); color: #fff; border-bottom-right-radius: 3px; }
+    .tutor-msg.assistant { align-self: flex-start; background: #fff; border: 1px solid var(--paper-line); color: var(--ink); border-bottom-left-radius: 3px; }
+    .tutor-msg.pending { opacity: 0.6; font-style: italic; }
+
+    .tutor-input-row {
+      display: flex;
+      gap: 0.5rem;
+      padding: 0.7rem;
+      border-top: 1px solid var(--paper-line);
+      flex-shrink: 0;
+      background: #fff;
+    }
+    .tutor-input-row textarea {
+      flex: 1;
+      resize: none;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 0.55rem 0.7rem;
+      font-family: inherit;
+      font-size: 0.9rem;
+      max-height: 90px;
+    }
+    .tutor-send-btn {
+      background: var(--header-red);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 0 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .tutor-send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -811,6 +917,149 @@
         });
       });
     });
+  </script>
+
+  <!-- =========================================================
+       AI TUTOR WIDGET -- nút nổi + panel chat, gọi thẳng ai-agent-lab
+       (strategy="tutor", xem src/agents/tutor_agent.py bên đó). Có mặt
+       trên mọi trang qua base.html này, nên trang chủ vẫn hiển thị bài
+       tập như cũ và chỉ có thêm lối vào hỏi AI gia sư, không thay đổi gì
+       ở phần bài tập. student_id/student_name lấy từ sessionStorage
+       (được ghi khi học sinh nhập thông tin ở trang entry.html) để gia sư
+       biết năng lực học sinh; nếu chưa có (mới vào trang chủ, chưa vào
+       làm bài lần nào) thì vẫn trả lời như hỏi-đáp thông thường, không
+       có gợi ý theo năng lực cá nhân. ========================= -->
+  <button class="tutor-fab" id="tutor-fab" title="Hỏi AI Gia sư">💬</button>
+
+  <div class="tutor-panel" id="tutor-panel">
+    <div class="tutor-header">
+      <div>
+        <strong>AI Gia sư</strong>
+        <span class="tutor-sub" id="tutor-sub">Hỏi bất cứ điều gì về bài học</span>
+      </div>
+      <button class="tutor-close" id="tutor-close" title="Đóng">✕</button>
+    </div>
+    <div class="tutor-messages" id="tutor-messages"></div>
+    <div class="tutor-input-row">
+      <textarea id="tutor-input" rows="1" placeholder="Nhập câu hỏi..."></textarea>
+      <button class="tutor-send-btn" id="tutor-send">Gửi</button>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var AGENT_LAB_BASE = {{ (agent_lab_url or '') | tojson }};
+      var fab = document.getElementById('tutor-fab');
+      var panel = document.getElementById('tutor-panel');
+      var closeBtn = document.getElementById('tutor-close');
+      var messagesEl = document.getElementById('tutor-messages');
+      var input = document.getElementById('tutor-input');
+      var sendBtn = document.getElementById('tutor-send');
+      var subEl = document.getElementById('tutor-sub');
+      var greeted = false;
+
+      function studentId() { return sessionStorage.getItem('tutor_student_id') || ''; }
+      function studentName() { return sessionStorage.getItem('tutor_student_name') || ''; }
+      function subject() { return sessionStorage.getItem('tutor_subject') || ''; }
+
+      function refreshSub() {
+        subEl.textContent = studentName()
+          ? 'Đang hỗ trợ ' + studentName() + ' — câu trả lời sẽ dựa trên năng lực gần nhất của bạn'
+          : 'Hỏi bất cứ điều gì về bài học';
+      }
+
+      function appendMessage(role, text) {
+        var div = document.createElement('div');
+        div.className = 'tutor-msg ' + role;
+        div.textContent = text;
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        return div;
+      }
+
+      function openPanel() {
+        panel.classList.add('open');
+        refreshSub();
+        if (!greeted) {
+          greeted = true;
+          appendMessage('assistant', 'Chào bạn! Mình là AI Gia sư của trung tâm. Bạn cần hỏi kiến thức, bài tập, hay muốn mình gợi ý ôn tập theo năng lực gần nhất?');
+        }
+        input.focus();
+      }
+
+      fab.addEventListener('click', function () {
+        panel.classList.contains('open') ? panel.classList.remove('open') : openPanel();
+      });
+      closeBtn.addEventListener('click', function () { panel.classList.remove('open'); });
+
+      // Cùng kiểu parse SSE thô như web/app.js bên ai-agent-lab, để nhất
+      // quán cách đọc luồng event: <type>\ndata: {...}\n\n
+      function parseSSEFrame(frameText) {
+        var data = null;
+        frameText.split('\n').forEach(function (line) {
+          if (line.indexOf('data:') === 0) data = line.slice(5).trim();
+        });
+        return data ? JSON.parse(data) : null;
+      }
+
+      async function sendQuery(query) {
+        appendMessage('user', query);
+        var pending = appendMessage('assistant pending', 'Đang suy nghĩ...');
+        sendBtn.disabled = true;
+
+        try {
+          var res = await fetch(AGENT_LAB_BASE + '/api/chat/stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              query: query,
+              strategy: 'tutor',
+              student_id: studentId() || null,
+              subject: subject() || null,
+            }),
+          });
+          if (!res.ok || !res.body) throw new Error('Server trả về lỗi ' + res.status);
+
+          var reader = res.body.getReader();
+          var decoder = new TextDecoder();
+          var buffer = '';
+          var finalText = null;
+
+          while (true) {
+            var chunk = await reader.read();
+            if (chunk.done) break;
+            buffer += decoder.decode(chunk.value, { stream: true });
+            var frames = buffer.split('\n\n');
+            buffer = frames.pop();
+            for (var i = 0; i < frames.length; i++) {
+              if (!frames[i].trim()) continue;
+              var frame = parseSSEFrame(frames[i]);
+              if (frame && frame.step_type === 'done') finalText = frame.content;
+            }
+          }
+
+          pending.classList.remove('pending');
+          pending.textContent = finalText || '(không nhận được câu trả lời)';
+        } catch (err) {
+          pending.classList.remove('pending');
+          pending.textContent = 'Xin lỗi, không kết nối được AI Gia sư lúc này (' + err.message + '). Vui lòng thử lại sau.';
+        } finally {
+          sendBtn.disabled = false;
+        }
+      }
+
+      function handleSend() {
+        var q = input.value.trim();
+        if (!q) return;
+        input.value = '';
+        sendQuery(q);
+      }
+
+      sendBtn.addEventListener('click', handleSend);
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+      });
+    })();
   </script>
 </body>
 </html>
